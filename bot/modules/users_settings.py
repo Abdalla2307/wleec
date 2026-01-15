@@ -3,8 +3,9 @@ from functools import partial
 from html import escape
 from io import BytesIO
 from os import getcwd
-from re import sub
 from time import time
+from re import sub
+from ..helper.ext_utils.thumb_utils import parse_thumb_caption
 
 from aiofiles.os import makedirs, remove
 from aiofiles.os import path as aiopath
@@ -33,6 +34,7 @@ from ..helper.telegram_helper.message_utils import (
 )
 
 handler_dict = {}
+thumball_sessions = {}
 
 leech_options = [
     "THUMBNAIL",
@@ -1097,6 +1099,101 @@ async def set_option(_, message, option, rfunc):
     await database.update_user_data(user_id)
 
 
+@new_task
+async def thumball(client, message):
+    user_id = message.from_user.id
+    if handler_dict.get(user_id):
+        await send_message(message, "Another setting action is already running.")
+        return
+    handler_dict[user_id] = True
+    start_time = update_time = time()
+    thumball_sessions[user_id] = {}
+    info_message = await send_message(
+        message,
+        "⌬ <b>ThumbAll Scheduler</b>\n\n"
+        "• Send photo(s) with caption(s) that contain the thumbnail name(s).\n"
+        "• You can use multiple names by separating with comma, |, or new line.\n"
+        "• Type <code>ok</code> when finished.\n"
+        "• Type <code>stop</code> to cancel.\n"
+        "┖ <b>Time Left :</b> <code>60 sec</code>",
+    )
+
+    async def event_filter(_, __, event):
+        user = event.from_user or event.sender_chat
+        return bool(
+            user
+            and user.id == user_id
+            and event.chat.id == message.chat.id
+            and (event.photo or event.document or event.text)
+        )
+
+    async def handle_thumball(_, event):
+        if event.text:
+            text = event.text.strip().lower()
+            if text == "ok":
+                handler_dict[user_id] = False
+            elif text in ["stop", "cancel"]:
+                thumball_sessions.pop(user_id, None)
+                handler_dict[user_id] = False
+                await send_message(message, "ThumbAll scheduling cancelled.")
+            else:
+                await send_message(message, "Send a photo or type <code>ok</code>.")
+            return
+
+        if event.document and event.document.mime_type:
+            if not event.document.mime_type.startswith("image/"):
+                await send_message(
+                    message, "Only images are supported for thumbnail scheduling."
+                )
+                return
+
+        caption = event.caption or ""
+        aliases = parse_thumb_caption(caption)
+        if not aliases:
+            await send_message(
+                message, "Please add a caption with the thumbnail name(s)."
+            )
+            return
+        thumb_path = await create_thumb(
+            event, f"{user_id}_thumball_{int(time() * 1000)}"
+        )
+        for alias in aliases:
+            thumball_sessions[user_id][alias] = thumb_path
+
+    handler = client.add_handler(
+        MessageHandler(handle_thumball, filters=create(event_filter)), group=-1
+    )
+
+    while handler_dict[user_id]:
+        await sleep(0.5)
+        if time() - start_time > 60:
+            handler_dict[user_id] = False
+            thumball_sessions.pop(user_id, None)
+            await send_message(message, "ThumbAll scheduling timed out.")
+        elif time() - update_time > 8 and handler_dict[user_id]:
+            update_time = time()
+            msg = await client.get_messages(info_message.chat.id, info_message.id)
+            text = msg.text.split("\n")
+            text[-1] = (
+                f"┖ <b>Time Left :</b> <code>{round(60 - (time() - start_time), 2)} sec</code>"
+            )
+            await edit_message(msg, "\n".join(text), msg.reply_markup)
+
+    client.remove_handler(*handler)
+
+    pending = thumball_sessions.pop(user_id, None)
+    if not pending:
+        return
+    current = user_data.get(user_id, {}).get("THUMBNAIL_ALL", {})
+    merged = {**current, **pending}
+    update_user_ldata(user_id, "THUMBNAIL_ALL", merged)
+    await database.update_user_thumbnails_all(user_id, merged)
+    await send_message(
+        message,
+        f"Saved <b>{len(pending)}</b> thumbnail name(s).",
+    )
+
+
 async def get_menu(option, message, user_id):
     handler_dict[user_id] = False
     user_dict = user_data.get(user_id, {})
@@ -1412,14 +1509,19 @@ async def edit_user_settings(client, query):
         if data[3] == "yes":
             await query.answer("Reset Done!", show_alert=True)
             user_dict = user_data.get(user_id, {})
+            thumb_all = user_dict.get("THUMBNAIL_ALL", {})
             for k in list(user_dict.keys()):
                 if k not in ("SUDO", "AUTH", "VERIFY_TOKEN", "VERIFY_TIME"):
                     del user_dict[k]
             for fpath in [thumb_path, rclone_conf, token_pickle, yt_cookie_path]:
                 if await aiopath.exists(fpath):
                     await remove(fpath)
+            for fpath in thumb_all.values():
+                if await aiopath.exists(fpath):
+                    await remove(fpath)
             await update_user_settings(query)
             await database.update_user_data(user_id)
+            await database.update_user_thumbnails_all(user_id, {})
         else:
             await query.answer("Reset Cancelled.", show_alert=True)
             await update_user_settings(query)

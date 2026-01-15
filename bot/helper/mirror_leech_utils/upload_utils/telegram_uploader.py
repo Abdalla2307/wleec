@@ -45,6 +45,7 @@ from ...ext_utils.media_utils import (
     get_video_thumbnail,
     get_md5_hash,
 )
+from ...ext_utils.thumb_utils import extract_thumb_match_name, normalize_thumb_name
 from ...telegram_helper.message_utils import delete_message
 
 LOGGER = getLogger(__name__)
@@ -87,6 +88,15 @@ class TelegramUploader:
         chunk_size = current - self._last_uploaded
         self._last_uploaded = current
         self._processed_bytes += chunk_size
+
+    def _get_thumball_match(self, file_name):
+        thumb_map = self._listener.user_dict.get("THUMBNAIL_ALL") or {}
+        if not thumb_map or self._listener.thumb or self._thumb == "none":
+            return None
+        match_key = extract_thumb_match_name(file_name)
+        if match_key and match_key in thumb_map:
+            return thumb_map[match_key]
+        return thumb_map.get(normalize_thumb_name("org"))
 
     async def _user_settings(self):
         settings_map = {
@@ -470,6 +480,9 @@ class TelegramUploader:
         ):
             self._thumb = None
         thumb = self._thumb
+        thumball_match = self._get_thumball_match(file)
+        if thumball_match and await aiopath.exists(thumball_match):
+            thumb = thumball_match
         self._is_corrupted = False
         try:
             is_video, is_audio, is_image = await get_document_type(self._up_path)
