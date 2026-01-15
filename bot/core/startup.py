@@ -1,5 +1,6 @@
 from asyncio import create_subprocess_exec, create_subprocess_shell, sleep
 from importlib import import_module
+from hashlib import md5
 from os import environ, getenv, path as ospath
 
 from aiofiles import open as aiopen
@@ -190,6 +191,17 @@ async def load_settings():
                     if row.get(key):
                         await save_file(path, row[key])
                         row[key] = path
+                thumb_all_map = row.get("THUMBNAIL_ALL")
+                if isinstance(thumb_all_map, dict):
+                    saved_map = {}
+                    for alias, content in thumb_all_map.items():
+                        if not content:
+                            continue
+                        digest = md5(alias.encode("utf-8")).hexdigest()
+                        thumb_path = f"thumbnails/{uid}_thumball_{digest}.jpg"
+                        await save_file(thumb_path, content)
+                        saved_map[alias] = thumb_path
+                    row["THUMBNAIL_ALL"] = saved_map
                 user_data[uid] = row
             LOGGER.info("Users Data has been imported from MongoDB")
 

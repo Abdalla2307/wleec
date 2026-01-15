@@ -348,6 +348,13 @@ def add_handlers():
         )
     )
     TgClient.bot.add_handler(
+        MessageHandler(
+            thumball,
+            filters=command(BotCommands.ThumbAllCommand, case_sensitive=True)
+            & CustomFilters.authorized_uset,
+        )
+    )
+    TgClient.bot.add_handler(
         CallbackQueryHandler(edit_user_settings, filters=regex("^userset"))
     )
     TgClient.bot.add_handler(
