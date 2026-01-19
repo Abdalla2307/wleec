@@ -1194,6 +1194,61 @@ async def thumball(client, message):
     )
 
 
+@new_task
+async def thumb_list(client, message):
+    user_id = message.from_user.id
+    thumb_map = user_data.get(user_id, {}).get("THUMBNAIL_ALL", {})
+    if not thumb_map:
+        await send_message(message, "No thumbnail names saved yet.")
+        return
+    names = sorted(thumb_map.keys())
+    list_lines = "\n".join(f"• <code>{escape(name)}</code>" for name in names)
+    await send_message(
+        message,
+        f"<b>Saved thumbnail names ({len(names)}):</b>\n{list_lines}",
+    )
+
+
+@new_task
+async def thumb_delete(client, message):
+    user_id = message.from_user.id
+    text = message.text or ""
+    parts = text.split(maxsplit=1)
+    if len(parts) < 2:
+        await send_message(
+            message,
+            "Send the thumbnail name(s) after the command. Example: <code>/thumbd name1, name2</code>",
+        )
+        return
+    aliases = parse_thumb_caption(parts[1])
+    if not aliases:
+        await send_message(message, "Please provide valid thumbnail name(s).")
+        return
+    current = user_data.get(user_id, {}).get("THUMBNAIL_ALL", {})
+    if not current:
+        await send_message(message, "No thumbnail names saved yet.")
+        return
+    updated = dict(current)
+    removed = {}
+    for alias in aliases:
+        if alias in updated:
+            removed[alias] = updated.pop(alias)
+    if not removed:
+        await send_message(message, "No matching thumbnail names were found.")
+        return
+    update_user_ldata(user_id, "THUMBNAIL_ALL", updated)
+    await database.update_user_thumbnails_all(user_id, updated)
+    remaining_paths = set(updated.values())
+    for path in set(removed.values()):
+        if path not in remaining_paths and await aiopath.exists(path):
+            await remove(path)
+    removed_names = ", ".join(f"<code>{escape(name)}</code>" for name in removed)
+    await send_message(
+        message,
+        f"Removed <b>{len(removed)}</b> thumbnail name(s): {removed_names}",
+    )
+
+
 async def get_menu(option, message, user_id):
     handler_dict[user_id] = False
     user_dict = user_data.get(user_id, {})

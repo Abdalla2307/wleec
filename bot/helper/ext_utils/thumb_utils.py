@@ -4,6 +4,7 @@ from re import compile, split, sub
 
 _ARABIC_EPISODE_RE = compile(r"^(.*?)\s+(?:الحلقه|الحلقة)\b", flags=0)
 _SEASON_RE = compile(r"^(.*?)(?:[\s._-]*s\d{1,2}(?:e\d{1,3})?.*)", flags=2)
+_DIGIT_RE = compile(r"[0-9٠-٩]+")
 _NORMALIZE_RE = compile(r"[\s._-]+")
 
 
@@ -11,6 +12,7 @@ def normalize_thumb_name(name: str) -> str:
     if not isinstance(name, str):
         return ""
     name = name.strip().lower()
+    name = _DIGIT_RE.sub(" ", name)
     name = _NORMALIZE_RE.sub(" ", name)
     name = sub(r"\s+", " ", name).strip()
     return name

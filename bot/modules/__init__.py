@@ -41,6 +41,8 @@ from .users_settings import (
     edit_user_settings,
     send_user_settings,
     thumball,
+    thumb_list,
+    thumb_delete,
 )
 from .ytdlp import ytdl, ytdl_leech
 
@@ -107,6 +109,8 @@ __all__ = [
     "edit_user_settings",
     "send_user_settings",
     "thumball",
+    "thumb_list",
+    "thumb_delete",
     "ytdl",
     "ytdl_leech",
 ]

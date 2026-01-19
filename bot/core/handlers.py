@@ -355,6 +355,20 @@ def add_handlers():
         )
     )
     TgClient.bot.add_handler(
+        MessageHandler(
+            thumb_list,
+            filters=command(BotCommands.ThumbCommand, case_sensitive=True)
+            & CustomFilters.authorized_uset,
+        )
+    )
+    TgClient.bot.add_handler(
+        MessageHandler(
+            thumb_delete,
+            filters=command(BotCommands.ThumbDCommand, case_sensitive=True)
+            & CustomFilters.authorized_uset,
+        )
+    )
+    TgClient.bot.add_handler(
         CallbackQueryHandler(edit_user_settings, filters=regex("^userset"))
     )
     TgClient.bot.add_handler(
