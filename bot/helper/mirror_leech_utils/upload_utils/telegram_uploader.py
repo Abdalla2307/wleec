@@ -78,6 +78,11 @@ class TelegramUploader:
         self._log_msg = None
         self._user_session = self._listener.user_transmission
         self._error = ""
+        self._is_dump_chat = False
+        if Config.LEECH_DUMP_CHAT and self._listener.up_dest:
+            self._is_dump_chat = str(self._listener.up_dest) == str(
+                Config.LEECH_DUMP_CHAT
+            )
 
     async def _upload_progress(self, current, _):
         if self._listener.is_cancelled:
@@ -117,9 +122,14 @@ class TelegramUploader:
 
         if self._thumb != "none" and not await aiopath.exists(self._thumb):
             self._thumb = None
+        if self._is_dump_chat:
+            self._media_group = False
 
     async def _msg_to_reply(self):
         if self._listener.up_dest:
+            if self._is_dump_chat:
+                self._sent_msg = None
+                return True
             msg_link = (
                 self._listener.message.link if self._listener.is_super_chat else ""
             )
@@ -268,6 +278,15 @@ class TelegramUploader:
 
         return cap_mono
 
+    def _strip_dump_caption_extension(self, caption: str) -> str:
+        if not caption:
+            return caption
+        return re_sub(
+            r"(?i)(?:\.mp4|\.mkv)(?=\s*(?:</\w+>)*\s*$)",
+            "",
+            caption,
+        )
+
     def _get_input_media(self, subkey, key):
         rlist = []
         for msg in self._media_dict[key][subkey]:
@@ -353,7 +372,8 @@ class TelegramUploader:
             if dirpath.strip().endswith("/yt-dlp-thumb"):
                 continue
             if dirpath.strip().endswith("_mltbss"):
-                await self._send_screenshots(dirpath, files)
+                if not self._is_dump_chat:
+                    await self._send_screenshots(dirpath, files)
                 await rmtree(dirpath, ignore_errors=True)
                 continue
             for file_ in natsorted(files):
@@ -459,19 +479,20 @@ class TelegramUploader:
         retry=retry_if_exception_type(Exception),
     )
     async def _upload_file(self, cap_mono, file, o_path, force_document=False):
-        if self._sent_msg is None:
-            LOGGER.error("Cannot upload: _sent_msg is None")
-            await self._listener.on_upload_error(
-                "Upload failed: Message not initialized"
-            )
-            return
+        if not self._is_dump_chat:
+            if self._sent_msg is None:
+                LOGGER.error("Cannot upload: _sent_msg is None")
+                await self._listener.on_upload_error(
+                    "Upload failed: Message not initialized"
+                )
+                return
 
-        if not hasattr(self._sent_msg, "chat") or self._sent_msg.chat is None:
-            LOGGER.error("Cannot upload: _sent_msg.chat is None")
-            await self._listener.on_upload_error(
-                "Upload failed: Invalid message object"
-            )
-            return
+            if not hasattr(self._sent_msg, "chat") or self._sent_msg.chat is None:
+                LOGGER.error("Cannot upload: _sent_msg.chat is None")
+                await self._listener.on_upload_error(
+                    "Upload failed: Invalid message object"
+                )
+                return
 
         if (
             self._thumb is not None
@@ -486,6 +507,8 @@ class TelegramUploader:
         self._is_corrupted = False
         try:
             is_video, is_audio, is_image = await get_document_type(self._up_path)
+            if self._is_dump_chat and is_video:
+                cap_mono = self._strip_dump_caption_extension(cap_mono)
 
             if not is_image and thumb is None:
                 file_name = ospath.splitext(file)[0]
@@ -510,15 +533,27 @@ class TelegramUploader:
                     return
                 if thumb == "none":
                     thumb = None
-                self._sent_msg = await self._sent_msg.reply_document(
-                    document=self._up_path,
-                    quote=True,
-                    thumb=thumb,
-                    caption=cap_mono,
-                    disable_content_type_detection=True,
-                    disable_notification=True,
-                    progress=self._upload_progress,
-                )
+                if self._is_dump_chat:
+                    self._sent_msg = await TgClient.bot.send_document(
+                        chat_id=self._listener.up_dest,
+                        document=self._up_path,
+                        thumb=thumb,
+                        caption=cap_mono,
+                        disable_content_type_detection=True,
+                        disable_notification=True,
+                        message_thread_id=self._listener.chat_thread_id,
+                        progress=self._upload_progress,
+                    )
+                else:
+                    self._sent_msg = await self._sent_msg.reply_document(
+                        document=self._up_path,
+                        quote=True,
+                        thumb=thumb,
+                        caption=cap_mono,
+                        disable_content_type_detection=True,
+                        disable_notification=True,
+                        progress=self._upload_progress,
+                    )
             elif is_video:
                 key = "videos"
                 duration = (await get_media_info(self._up_path))[0]
@@ -540,18 +575,33 @@ class TelegramUploader:
                     return
                 if thumb == "none":
                     thumb = None
-                self._sent_msg = await self._sent_msg.reply_video(
-                    video=self._up_path,
-                    quote=True,
-                    caption=cap_mono,
-                    duration=duration,
-                    width=width,
-                    height=height,
-                    thumb=thumb,
-                    supports_streaming=True,
-                    disable_notification=True,
-                    progress=self._upload_progress,
-                )
+                if self._is_dump_chat:
+                    self._sent_msg = await TgClient.bot.send_video(
+                        chat_id=self._listener.up_dest,
+                        video=self._up_path,
+                        caption=cap_mono,
+                        duration=duration,
+                        width=width,
+                        height=height,
+                        thumb=thumb,
+                        supports_streaming=True,
+                        disable_notification=True,
+                        message_thread_id=self._listener.chat_thread_id,
+                        progress=self._upload_progress,
+                    )
+                else:
+                    self._sent_msg = await self._sent_msg.reply_video(
+                        video=self._up_path,
+                        quote=True,
+                        caption=cap_mono,
+                        duration=duration,
+                        width=width,
+                        height=height,
+                        thumb=thumb,
+                        supports_streaming=True,
+                        disable_notification=True,
+                        progress=self._upload_progress,
+                    )
             elif is_audio:
                 key = "audios"
                 duration, artist, title = await get_media_info(self._up_path)
@@ -559,28 +609,52 @@ class TelegramUploader:
                     return
                 if thumb == "none":
                     thumb = None
-                self._sent_msg = await self._sent_msg.reply_audio(
-                    audio=self._up_path,
-                    quote=True,
-                    caption=cap_mono,
-                    duration=duration,
-                    performer=artist,
-                    title=title,
-                    thumb=thumb,
-                    disable_notification=True,
-                    progress=self._upload_progress,
-                )
+                if self._is_dump_chat:
+                    self._sent_msg = await TgClient.bot.send_audio(
+                        chat_id=self._listener.up_dest,
+                        audio=self._up_path,
+                        caption=cap_mono,
+                        duration=duration,
+                        performer=artist,
+                        title=title,
+                        thumb=thumb,
+                        disable_notification=True,
+                        message_thread_id=self._listener.chat_thread_id,
+                        progress=self._upload_progress,
+                    )
+                else:
+                    self._sent_msg = await self._sent_msg.reply_audio(
+                        audio=self._up_path,
+                        quote=True,
+                        caption=cap_mono,
+                        duration=duration,
+                        performer=artist,
+                        title=title,
+                        thumb=thumb,
+                        disable_notification=True,
+                        progress=self._upload_progress,
+                    )
             else:
                 key = "photos"
                 if self._listener.is_cancelled:
                     return
-                self._sent_msg = await self._sent_msg.reply_photo(
-                    photo=self._up_path,
-                    quote=True,
-                    caption=cap_mono,
-                    disable_notification=True,
-                    progress=self._upload_progress,
-                )
+                if self._is_dump_chat:
+                    self._sent_msg = await TgClient.bot.send_photo(
+                        chat_id=self._listener.up_dest,
+                        photo=self._up_path,
+                        caption=cap_mono,
+                        disable_notification=True,
+                        message_thread_id=self._listener.chat_thread_id,
+                        progress=self._upload_progress,
+                    )
+                else:
+                    self._sent_msg = await self._sent_msg.reply_photo(
+                        photo=self._up_path,
+                        quote=True,
+                        caption=cap_mono,
+                        disable_notification=True,
+                        progress=self._upload_progress,
+                    )
 
             if (
                 not self._listener.is_cancelled
