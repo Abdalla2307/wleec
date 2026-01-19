@@ -49,6 +49,8 @@ class BotCommands:
         "BotSet": ["bsetting", "bs"],
         "UserSet": ["usetting", "us"],
         "ThumbAll": "thumball",
+        "Thumb": "thumb",
+        "ThumbD": "thumbd",
         "Select": ["select", "sel"],
         "NzbSearch": ["nzbsearch", "ns"],
         "Plugins": "plugins",
