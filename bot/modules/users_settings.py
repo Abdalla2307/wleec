@@ -34,7 +34,6 @@ from ..helper.telegram_helper.message_utils import (
 )
 
 handler_dict = {}
-thumball_sessions = {}
 
 leech_options = [
     "THUMBNAIL",
@@ -1107,12 +1106,12 @@ async def thumball(client, message):
         return
     handler_dict[user_id] = True
     start_time = update_time = time()
-    thumball_sessions[user_id] = {}
     info_message = await send_message(
         message,
         "⌬ <b>ThumbAll Scheduler</b>\n\n"
         "• Send photo(s) with caption(s) that contain the thumbnail name(s).\n"
         "• You can use multiple names by separating with comma, |, or new line.\n"
+        "• Every thumbnail is saved immediately to database.\n"
         "• Type <code>ok</code> when finished.\n"
         "• Type <code>stop</code> to cancel.\n"
         "┖ <b>Time Left :</b> <code>60 sec</code>",
@@ -1133,7 +1132,6 @@ async def thumball(client, message):
             if text == "ok":
                 handler_dict[user_id] = False
             elif text in ["stop", "cancel"]:
-                thumball_sessions.pop(user_id, None)
                 handler_dict[user_id] = False
                 await send_message(message, "ThumbAll scheduling cancelled.")
             else:
@@ -1147,18 +1145,39 @@ async def thumball(client, message):
                 )
                 return
 
-        caption = event.caption or ""
-        aliases = parse_thumb_caption(caption)
+        aliases = parse_thumb_caption(event.caption or "")
         if not aliases:
             await send_message(
                 message, "Please add a caption with the thumbnail name(s)."
             )
             return
+
         thumb_path = await create_thumb(
             event, f"{user_id}_thumball_{int(time() * 1000)}"
         )
+        current = dict(user_data.get(user_id, {}).get("THUMBNAIL_ALL", {}))
+        replaced_paths = set()
         for alias in aliases:
-            thumball_sessions[user_id][alias] = thumb_path
+            old_path = current.get(alias)
+            current[alias] = thumb_path
+            if old_path and old_path != thumb_path:
+                replaced_paths.add(old_path)
+
+        active_paths = set(current.values())
+        for old_path in replaced_paths:
+            if (
+                old_path not in active_paths
+                and old_path.startswith("thumbnails/")
+                and await aiopath.exists(old_path)
+            ):
+                await remove(old_path)
+
+        update_user_ldata(user_id, "THUMBNAIL_ALL", current)
+        await database.update_user_thumbnails_all(user_id, current)
+        await send_message(
+            message,
+            f"Saved <b>{len(aliases)}</b> thumbnail name(s) to database.",
+        )
 
     handler = client.add_handler(
         MessageHandler(handle_thumball, filters=create(event_filter)), group=-1
@@ -1168,7 +1187,6 @@ async def thumball(client, message):
         await sleep(0.5)
         if time() - start_time > 60:
             handler_dict[user_id] = False
-            thumball_sessions.pop(user_id, None)
             await send_message(message, "ThumbAll scheduling timed out.")
         elif time() - update_time > 8 and handler_dict[user_id]:
             update_time = time()
@@ -1180,18 +1198,6 @@ async def thumball(client, message):
             await edit_message(msg, "\n".join(text), msg.reply_markup)
 
     client.remove_handler(*handler)
-
-    pending = thumball_sessions.pop(user_id, None)
-    if not pending:
-        return
-    current = user_data.get(user_id, {}).get("THUMBNAIL_ALL", {})
-    merged = {**current, **pending}
-    update_user_ldata(user_id, "THUMBNAIL_ALL", merged)
-    await database.update_user_thumbnails_all(user_id, merged)
-    await send_message(
-        message,
-        f"Saved <b>{len(pending)}</b> thumbnail name(s).",
-    )
 
 
 @new_task

@@ -1,7 +1,7 @@
 from asyncio import sleep
 from logging import getLogger
 from os import path as ospath, walk
-from re import match as re_match, sub as re_sub
+from re import escape as re_escape, match as re_match, sub as re_sub
 from time import time
 
 from aioshutil import rmtree
@@ -281,6 +281,13 @@ class TelegramUploader:
     def _strip_dump_caption_extension(self, caption: str) -> str:
         if not caption:
             return caption
+        if self._lprefix:
+            caption = re_sub(
+                rf"(^\s*(?:<\w+>)?)\s*{re_escape(self._lprefix)}",
+                r"\1",
+                caption,
+                count=1,
+            )
         return re_sub(
             r"(?i)(?:\.mp4|\.mkv)(?=\s*(?:</\w+>)*\s*$)",
             "",

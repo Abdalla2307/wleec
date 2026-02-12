@@ -137,6 +137,7 @@ class DbManager:
                                                     "RCLONE_CONFIG",
                                                     "TOKEN_PICKLE",
                                                     "USER_COOKIE_FILE",
+                                                    "THUMBNAIL_ALL",
                                                 ],
                                             ]
                                         },
