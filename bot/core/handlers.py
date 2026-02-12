@@ -1,7 +1,10 @@
 # ruff: noqa: F403, F405
 
+from logging import getLogger
+
 from pyrogram.filters import command, regex
 from pyrogram.handlers import CallbackQueryHandler, EditedMessageHandler, MessageHandler
+from pyrogram.errors import BotCommandInvalid
 from pyrogram.types import BotCommand
 
 from ..core.config_manager import Config
@@ -10,6 +13,9 @@ from ..helper.telegram_helper.bot_commands import BotCommands
 from ..helper.telegram_helper.filters import CustomFilters
 from ..modules import *
 from .tg_client import TgClient
+
+
+LOGGER = getLogger(__name__)
 
 
 def add_handlers():
@@ -431,14 +437,20 @@ def add_handlers():
                 BOT_COMMANDS, "Login", "[password] Login to Bot", 14
             )
 
-        TgClient.bot.set_bot_commands(
-            [
-                BotCommand(
-                    cmds[0] if isinstance(cmds, list) else cmds,
-                    description,
-                )
-                for cmd, description in BOT_COMMANDS.items()
-                for cmds in [getattr(BotCommands, f"{cmd}Command", None)]
-                if cmds is not None
-            ]
-        )
+        try:
+            TgClient.bot.set_bot_commands(
+                [
+                    BotCommand(
+                        cmds[0] if isinstance(cmds, list) else cmds,
+                        description,
+                    )
+                    for cmd, description in BOT_COMMANDS.items()
+                    for cmds in [getattr(BotCommands, f"{cmd}Command", None)]
+                    if cmds is not None
+                ]
+            )
+        except BotCommandInvalid as e:
+            LOGGER.error(
+                "Failed to set bot commands. Check CMD_SUFFIX format/length. Error: %s",
+                e,
+            )
