@@ -79,6 +79,7 @@ class TelegramUploader:
         self._user_session = self._listener.user_transmission
         self._error = ""
         self._is_dump_chat = False
+        self._thumball_map = {}
         if Config.LEECH_DUMP_CHAT and self._listener.up_dest:
             self._is_dump_chat = str(self._listener.up_dest) == str(
                 Config.LEECH_DUMP_CHAT
@@ -94,14 +95,40 @@ class TelegramUploader:
         self._last_uploaded = current
         self._processed_bytes += chunk_size
 
+    def _build_thumball_map(self):
+        raw_map = self._listener.user_dict.get("THUMBNAIL_ALL") or {}
+        normalized_map = {}
+        for alias, thumb_path in raw_map.items():
+            normalized_alias = normalize_thumb_name(alias)
+            if normalized_alias and thumb_path:
+                normalized_map[normalized_alias] = thumb_path
+        return normalized_map
+
     def _get_thumball_match(self, file_name):
-        thumb_map = self._listener.user_dict.get("THUMBNAIL_ALL") or {}
-        if not thumb_map or self._listener.thumb or self._thumb == "none":
+        if not self._thumball_map or self._listener.thumb or self._thumb == "none":
             return None
         match_key = extract_thumb_match_name(file_name)
-        if match_key and match_key in thumb_map:
-            return thumb_map[match_key]
-        return thumb_map.get(normalize_thumb_name("org"))
+        if match_key and match_key in self._thumball_map:
+            return self._thumball_map[match_key]
+
+        if match_key:
+            partial_matches = [
+                (alias, path)
+                for alias, path in self._thumball_map.items()
+                if alias in match_key or match_key in alias
+            ]
+            if partial_matches:
+                partial_matches.sort(key=lambda item: len(item[0]), reverse=True)
+                return partial_matches[0][1]
+
+        return self._thumball_map.get(normalize_thumb_name("org"))
+
+    def _get_thumball_default(self):
+        if not self._thumball_map:
+            return None
+        return self._thumball_map.get(normalize_thumb_name("org")) or next(
+            iter(self._thumball_map.values()), None
+        )
 
     async def _user_settings(self):
         settings_map = {
@@ -119,6 +146,8 @@ class TelegramUploader:
                 attr,
                 self._listener.user_dict.get(key) or getattr(Config, key, default),
             )
+
+        self._thumball_map = self._build_thumball_map()
 
         if self._thumb != "none" and not await aiopath.exists(self._thumb):
             self._thumb = None
@@ -511,6 +540,10 @@ class TelegramUploader:
         thumball_match = self._get_thumball_match(file)
         if thumball_match and await aiopath.exists(thumball_match):
             thumb = thumball_match
+        elif thumb is None:
+            thumball_default = self._get_thumball_default()
+            if thumball_default and await aiopath.exists(thumball_default):
+                thumb = thumball_default
         self._is_corrupted = False
         try:
             is_video, is_audio, is_image = await get_document_type(self._up_path)
