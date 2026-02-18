@@ -130,6 +130,11 @@ class TelegramUploader:
             iter(self._thumball_map.values()), None
         )
 
+    def _should_cleanup_thumb(self, thumb):
+        if self._thumb is not None or thumb is None or thumb == "none":
+            return False
+        return thumb not in self._thumball_map.values()
+
     async def _user_settings(self):
         settings_map = {
             "MEDIA_GROUP": ("_media_group", False),
@@ -743,28 +748,16 @@ class TelegramUploader:
                                 f"Failed to forward to {self._listener.leech_dest}\n{e}",
                             )
 
-            if (
-                self._thumb is None
-                and thumb is not None
-                and await aiopath.exists(thumb)
-            ):
+            if self._should_cleanup_thumb(thumb) and await aiopath.exists(thumb):
                 await remove(thumb)
         except (FloodWait, FloodPremiumWait) as f:
             LOGGER.warning(str(f))
             await sleep(f.value * 1.3)
-            if (
-                self._thumb is None
-                and thumb is not None
-                and await aiopath.exists(thumb)
-            ):
+            if self._should_cleanup_thumb(thumb) and await aiopath.exists(thumb):
                 await remove(thumb)
             return await self._upload_file(cap_mono, file, o_path)
         except Exception as err:
-            if (
-                self._thumb is None
-                and thumb is not None
-                and await aiopath.exists(thumb)
-            ):
+            if self._should_cleanup_thumb(thumb) and await aiopath.exists(thumb):
                 await remove(thumb)
             err_type = "RPCError: " if isinstance(err, RPCError) else ""
             LOGGER.error(f"{err_type}{err}. Path: {self._up_path}", exc_info=True)
