@@ -13,7 +13,9 @@ try:
     from pyrogram.errors import FloodPremiumWait
 except ImportError:
     FloodPremiumWait = FloodWait
+from aiofiles import open as aiopen
 from aiofiles.os import (
+    makedirs,
     path as aiopath,
     remove,
     rename,
@@ -34,6 +36,7 @@ from tenacity import (
 from ....core.config_manager import Config
 from ....core.tg_client import TgClient
 from ...ext_utils.bot_utils import sync_to_async
+from ...ext_utils.db_handler import database
 from ...ext_utils.files_utils import get_base_name, is_archive
 from ...ext_utils.status_utils import get_readable_file_size, get_readable_time
 from ...telegram_helper.message_utils import send_message
@@ -78,6 +81,7 @@ class TelegramUploader:
         self._log_msg = None
         self._user_session = self._listener.user_transmission
         self._error = ""
+        self._thumball_cache_checked = False
         self._is_dump_chat = False
         if Config.LEECH_DUMP_CHAT and self._listener.up_dest:
             self._is_dump_chat = str(self._listener.up_dest) == str(
@@ -93,6 +97,33 @@ class TelegramUploader:
         chunk_size = current - self._last_uploaded
         self._last_uploaded = current
         self._processed_bytes += chunk_size
+
+    async def _ensure_thumball_cache(self):
+        if self._thumball_cache_checked:
+            return
+        self._thumball_cache_checked = True
+        thumb_map = self._listener.user_dict.get("THUMBNAIL_ALL") or {}
+        if not thumb_map:
+            return
+        missing = []
+        for alias, path in thumb_map.items():
+            if path and not await aiopath.exists(path):
+                missing.append(alias)
+        if not missing:
+            return
+        db_thumb_map = await database.get_user_thumbnails_all(self._listener.user_id)
+        if not db_thumb_map:
+            return
+        for alias in missing:
+            content = db_thumb_map.get(alias)
+            target_path = thumb_map.get(alias)
+            if not content or not target_path:
+                continue
+            dir_path = ospath.dirname(target_path)
+            if dir_path and not await aiopath.exists(dir_path):
+                await makedirs(dir_path)
+            async with aiopen(target_path, "wb+") as f:
+                await f.write(content)
 
     def _get_thumball_match(self, file_name):
         thumb_map = self._listener.user_dict.get("THUMBNAIL_ALL") or {}
@@ -508,6 +539,7 @@ class TelegramUploader:
         ):
             self._thumb = None
         thumb = self._thumb
+        await self._ensure_thumball_cache()
         thumball_match = self._get_thumball_match(file)
         if thumball_match and await aiopath.exists(thumball_match):
             thumb = thumball_match

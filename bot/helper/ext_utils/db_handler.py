@@ -170,6 +170,17 @@ class DbManager:
             {"_id": user_id}, {"$set": {"THUMBNAIL_ALL": encoded}}, upsert=True
         )
 
+    async def get_user_thumbnails_all(self, user_id):
+        if self._return:
+            return {}
+        row = await self.db.users[TgClient.ID].find_one(
+            {"_id": user_id}, {"THUMBNAIL_ALL": 1, "_id": 0}
+        )
+        if not row:
+            return {}
+        thumb_map = row.get("THUMBNAIL_ALL")
+        return thumb_map if isinstance(thumb_map, dict) else {}
+
     async def update_user_doc(self, user_id, key, path=""):
         if self._return:
             return
