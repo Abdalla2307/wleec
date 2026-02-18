@@ -511,6 +511,12 @@ class TelegramUploader:
         thumball_match = self._get_thumball_match(file)
         if thumball_match and await aiopath.exists(thumball_match):
             thumb = thumball_match
+        elif thumball_match:
+            org_thumb = (self._listener.user_dict.get("THUMBNAIL_ALL") or {}).get(
+                normalize_thumb_name("org")
+            )
+            if org_thumb and await aiopath.exists(org_thumb):
+                thumb = org_thumb
         self._is_corrupted = False
         try:
             is_video, is_audio, is_image = await get_document_type(self._up_path)

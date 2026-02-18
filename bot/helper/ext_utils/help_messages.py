@@ -395,6 +395,7 @@ def get_bot_commands():
         "ThumbAll": "Schedule multiple thumbnails with captions",
         "Thumb": "List saved thumbnail names",
         "ThumbD": "Delete thumbnail names",
+        "ThumbClear": "Delete all saved thumbnails from database",
         "ForceStart": "[gid/reply] Force start from queued task",
         "Count": "[link] Count no. of files/folders in GDrive",
         "List": "[query] Search any Text which is available in GDrive",
@@ -494,6 +495,10 @@ def get_help_string():
         elif key == "ThumbD":
             help_lines.append(
                 f"{cmd_str} [names]: Delete saved thumbnail names by caption."
+            )
+        elif key == "ThumbClear":
+            help_lines.append(
+                f"{cmd_str}: Delete all saved thumbnails from database and local cache."
             )
         elif key == "BotSet":
             help_lines.append(f"{cmd_str} [query]: Bot settings.")

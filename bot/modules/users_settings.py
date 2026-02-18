@@ -1255,6 +1255,30 @@ async def thumb_delete(client, message):
     )
 
 
+@new_task
+async def thumb_clear(client, message):
+    user_id = message.from_user.id
+    thumb_path = f"thumbnails/{user_id}.jpg"
+    thumb_map = dict(user_data.get(user_id, {}).get("THUMBNAIL_ALL", {}))
+
+    for path in set(thumb_map.values()):
+        if path.startswith("thumbnails/") and await aiopath.exists(path):
+            await remove(path)
+
+    if await aiopath.exists(thumb_path):
+        await remove(thumb_path)
+
+    update_user_ldata(user_id, "THUMBNAIL_ALL", {})
+    update_user_ldata(user_id, "THUMBNAIL", "")
+    await database.update_user_thumbnails_all(user_id, {})
+    await database.update_user_doc(user_id, "THUMBNAIL")
+
+    await send_message(
+        message,
+        "All saved thumbnails were deleted from database and local cache. Send new ones with <code>/thumball</code>, then type <code>ok</code>.",
+    )
+
+
 async def get_menu(option, message, user_id):
     handler_dict[user_id] = False
     user_dict = user_data.get(user_id, {})

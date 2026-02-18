@@ -56,6 +56,7 @@ class BotCommands:
         "ThumbAll": "thumball",
         "Thumb": "thumb",
         "ThumbD": "thumbd",
+        "ThumbClear": "thumbclear",
         "Select": ["select", "sel"],
         "NzbSearch": ["nzbsearch", "ns"],
         "Plugins": "plugins",
