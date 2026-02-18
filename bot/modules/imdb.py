@@ -48,6 +48,7 @@ IMDB_GENRE_EMOJI = {
     "Western": "🪩",
 }
 LIST_ITEMS = 4
+DEFAULT_POSTER = "https://telegra.ph/file/5af8d90a479b0d11df298.jpg"
 
 
 async def imdb_search(_, message):
@@ -195,10 +196,7 @@ def get_poster(query, bulk=False, id=False, file=None):
         "release_date": getattr(movie, "release_date", "N/A") or "N/A",
         "year": str(getattr(movie, "year", "N/A") or "N/A"),
         "genres": list_to_hash(getattr(movie, "genres", []) or [], emoji=True) or "N/A",
-        "poster": getattr(
-            movie, "cover_url", "https://telegra.ph/file/5af8d90a479b0d11df298.jpg"
-        )
-        or "https://telegra.ph/file/5af8d90a479b0d11df298.jpg",
+        "poster": getattr(movie, "cover_url", DEFAULT_POSTER) or DEFAULT_POSTER,
         "plot": plot or "N/A",
         "rating": str(getattr(movie, "rating", "N/A") or "N/A") + " / 10",
         "url": getattr(movie, "url", "N/A") or "N/A",
@@ -286,24 +284,30 @@ async def imdb_callback(_, query):
             cap = template.format(**imdb, **locals())
         else:
             cap = "No Results"
-        if imdb.get("poster"):
-            try:
-                await TgClient.bot.send_photo(
-                    chat_id=query.message.reply_to_message.chat.id,
-                    caption=cap,
-                    photo=imdb["poster"],
-                    reply_to_message_id=query.message.reply_to_message.id,
-                    reply_markup=buttons,
-                )
-            except (MediaEmpty, PhotoInvalidDimensions, WebpageMediaEmpty):
-                poster = imdb.get("poster").replace(".jpg", "._V1_UX360.jpg")
-                await send_message(message.reply_to_message, cap, buttons, photo=poster)
-        else:
+        poster = imdb.get("poster") or DEFAULT_POSTER
+        sent = None
+        try:
+            sent = await TgClient.bot.send_photo(
+                chat_id=query.message.reply_to_message.chat.id,
+                caption=cap,
+                photo=poster,
+                reply_to_message_id=query.message.reply_to_message.id,
+                reply_markup=buttons,
+            )
+        except (MediaEmpty, PhotoInvalidDimensions, WebpageMediaEmpty):
+            fallback = poster.replace(".jpg", "._V1_UX360.jpg")
+            sent = await send_message(
+                message.reply_to_message,
+                cap,
+                buttons,
+                photo=fallback,
+            )
+        if sent is None:
             await send_message(
                 message.reply_to_message,
                 cap,
                 buttons,
-                "https://telegra.ph/file/5af8d90a479b0d11df298.jpg",
+                photo=DEFAULT_POSTER,
             )
         await delete_message(message)
     else:
