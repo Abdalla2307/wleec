@@ -508,6 +508,7 @@ class TelegramUploader:
         ):
             self._thumb = None
         thumb = self._thumb
+        remove_thumb_after_upload = False
         thumball_match = self._get_thumball_match(file)
         if thumball_match and await aiopath.exists(thumball_match):
             thumb = thumball_match
@@ -526,6 +527,7 @@ class TelegramUploader:
                     thumb = thumb_path.replace("/yt-dlp-thumb", "")
                 elif is_audio and not is_video:
                     thumb = await get_audio_thumbnail(self._up_path)
+                    remove_thumb_after_upload = True
 
             if (
                 self._listener.as_doc
@@ -535,6 +537,7 @@ class TelegramUploader:
                 key = "documents"
                 if is_video and thumb is None:
                     thumb = await get_video_thumbnail(self._up_path, None)
+                    remove_thumb_after_upload = True
 
                 if self._listener.is_cancelled:
                     return
@@ -570,8 +573,10 @@ class TelegramUploader:
                         self._listener.thumbnail_layout,
                         self._listener.screen_shots,
                     )
+                    remove_thumb_after_upload = True
                 if thumb is None:
                     thumb = await get_video_thumbnail(self._up_path, duration)
+                    remove_thumb_after_upload = True
                 if thumb is not None and thumb != "none":
                     with Image.open(thumb) as img:
                         width, height = img.size
@@ -710,28 +715,16 @@ class TelegramUploader:
                                 f"Failed to forward to {self._listener.leech_dest}\n{e}",
                             )
 
-            if (
-                self._thumb is None
-                and thumb is not None
-                and await aiopath.exists(thumb)
-            ):
+            if remove_thumb_after_upload and thumb is not None and await aiopath.exists(thumb):
                 await remove(thumb)
         except (FloodWait, FloodPremiumWait) as f:
             LOGGER.warning(str(f))
             await sleep(f.value * 1.3)
-            if (
-                self._thumb is None
-                and thumb is not None
-                and await aiopath.exists(thumb)
-            ):
+            if remove_thumb_after_upload and thumb is not None and await aiopath.exists(thumb):
                 await remove(thumb)
             return await self._upload_file(cap_mono, file, o_path)
         except Exception as err:
-            if (
-                self._thumb is None
-                and thumb is not None
-                and await aiopath.exists(thumb)
-            ):
+            if remove_thumb_after_upload and thumb is not None and await aiopath.exists(thumb):
                 await remove(thumb)
             err_type = "RPCError: " if isinstance(err, RPCError) else ""
             LOGGER.error(f"{err_type}{err}. Path: {self._up_path}", exc_info=True)
