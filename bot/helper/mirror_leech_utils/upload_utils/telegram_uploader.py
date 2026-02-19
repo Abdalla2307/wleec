@@ -108,27 +108,14 @@ class TelegramUploader:
         if not self._thumball_map or self._listener.thumb or self._thumb == "none":
             return None
         match_key = extract_thumb_match_name(file_name)
-        if match_key and match_key in self._thumball_map:
-            return self._thumball_map[match_key]
-
         if match_key:
-            partial_matches = [
-                (alias, path)
-                for alias, path in self._thumball_map.items()
-                if alias in match_key or match_key in alias
-            ]
-            if partial_matches:
-                partial_matches.sort(key=lambda item: len(item[0]), reverse=True)
-                return partial_matches[0][1]
-
-        return self._thumball_map.get(normalize_thumb_name("org"))
+            return self._thumball_map.get(match_key)
+        return None
 
     def _get_thumball_default(self):
         if not self._thumball_map:
             return None
-        return self._thumball_map.get(normalize_thumb_name("org")) or next(
-            iter(self._thumball_map.values()), None
-        )
+        return self._thumball_map.get(normalize_thumb_name("org"))
 
     def _should_cleanup_thumb(self, thumb):
         if self._thumb is not None or thumb is None or thumb == "none":
