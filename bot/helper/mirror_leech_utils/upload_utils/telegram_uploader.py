@@ -80,6 +80,7 @@ class TelegramUploader:
         self._error = ""
         self._is_dump_chat = False
         self._thumball_map = {}
+        self._thumball_ambiguous = set()
         if Config.LEECH_DUMP_CHAT and self._listener.up_dest:
             self._is_dump_chat = str(self._listener.up_dest) == str(
                 Config.LEECH_DUMP_CHAT
@@ -98,18 +99,33 @@ class TelegramUploader:
     def _build_thumball_map(self):
         raw_map = self._listener.user_dict.get("THUMBNAIL_ALL") or {}
         normalized_map = {}
+        ambiguous_keys = set()
         for alias, thumb_path in raw_map.items():
             normalized_alias = normalize_thumb_name(alias)
-            if normalized_alias and thumb_path:
-                normalized_map[normalized_alias] = thumb_path
+            if not normalized_alias or not thumb_path:
+                continue
+            old_path = normalized_map.get(normalized_alias)
+            if old_path and old_path != thumb_path:
+                ambiguous_keys.add(normalized_alias)
+                continue
+            normalized_map[normalized_alias] = thumb_path
+        self._thumball_ambiguous = ambiguous_keys
         return normalized_map
 
     def _get_thumball_match(self, file_name):
         if not self._thumball_map or self._listener.thumb or self._thumb == "none":
             return None
+
+        base_key = normalize_thumb_name(ospath.splitext(file_name)[0])
+        if base_key and base_key not in self._thumball_ambiguous:
+            thumb = self._thumball_map.get(base_key)
+            if thumb:
+                return thumb
+
         match_key = extract_thumb_match_name(file_name)
-        if match_key:
+        if match_key and match_key not in self._thumball_ambiguous:
             return self._thumball_map.get(match_key)
+
         return None
 
     def _get_thumball_default(self):
