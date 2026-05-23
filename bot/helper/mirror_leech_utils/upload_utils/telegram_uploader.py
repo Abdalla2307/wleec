@@ -325,6 +325,8 @@ class TelegramUploader:
                 caption,
                 count=1,
             )
+        # Remove [EFlix.Plus] tag if present (anywhere in caption)
+        caption = re_sub(r"\[EFlix\.Plus\]", "", caption).strip()
         return re_sub(
             r"(?i)(?:\.mp4|\.mkv)(?=\s*(?:</\w+>)*\s*$)",
             "",
