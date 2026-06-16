@@ -56,6 +56,8 @@ async def update_qb_options():
     else:
         if "web_ui_password" not in qbit_options or len(str(qbit_options["web_ui_password"])) < 6:
             qbit_options["web_ui_password"] = "adminadmin"
+        LOGGER.info(f"qbit_options keys: {list(qbit_options.keys())}")
+        LOGGER.info(f"qbit_options web_ui_password value: {qbit_options.get('web_ui_password')}")
         try:
             await TorrentManager.qbittorrent.app.set_preferences(qbit_options)
         except Exception as e:
