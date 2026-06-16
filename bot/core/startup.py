@@ -34,24 +34,34 @@ from .torrent_manager import TorrentManager
 
 async def update_qb_options():
     LOGGER.info("Get qBittorrent options from server")
+    if "web_ui_password" in qbit_options:
+        if len(str(qbit_options["web_ui_password"])) < 6:
+            qbit_options["web_ui_password"] = "adminadmin"
     if not qbit_options:
         if not TorrentManager.qbittorrent:
             LOGGER.warning(
                 "qBittorrent is not initialized. Skipping qBittorrent options update."
             )
             return
-        opt = await TorrentManager.qbittorrent.app.preferences()
-        qbit_options.update(opt)
-        del qbit_options["listen_port"]
-        for k in list(qbit_options.keys()):
-            if k.startswith("rss"):
-                del qbit_options[k]
-        qbit_options["web_ui_password"] = "adminadmin"
-        await TorrentManager.qbittorrent.app.set_preferences(
-            {"web_ui_password": "adminadmin"}
-        )
+        try:
+            opt = await TorrentManager.qbittorrent.app.preferences()
+            qbit_options.update(opt)
+            del qbit_options["listen_port"]
+            for k in list(qbit_options.keys()):
+                if k.startswith("rss"):
+                    del qbit_options[k]
+            qbit_options["web_ui_password"] = "adminadmin"
+            await TorrentManager.qbittorrent.app.set_preferences(
+                {"web_ui_password": "adminadmin"}
+            )
+        except Exception as e:
+            LOGGER.error(f"Failed to configure qBittorrent: {e}")
     else:
-        await TorrentManager.qbittorrent.app.set_preferences(qbit_options)
+        try:
+            await TorrentManager.qbittorrent.app.set_preferences(qbit_options)
+        except Exception as e:
+            LOGGER.error(f"Failed to configure qBittorrent: {e}")
+
 
 
 async def update_aria2_options():
