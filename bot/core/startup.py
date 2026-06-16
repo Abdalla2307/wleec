@@ -34,9 +34,6 @@ from .torrent_manager import TorrentManager
 
 async def update_qb_options():
     LOGGER.info("Get qBittorrent options from server")
-    if "web_ui_password" in qbit_options:
-        if len(str(qbit_options["web_ui_password"])) < 6:
-            qbit_options["web_ui_password"] = "adminadmin"
     if not qbit_options:
         if not TorrentManager.qbittorrent:
             LOGGER.warning(
@@ -57,6 +54,8 @@ async def update_qb_options():
         except Exception as e:
             LOGGER.error(f"Failed to configure qBittorrent: {e}")
     else:
+        if "web_ui_password" not in qbit_options or len(str(qbit_options["web_ui_password"])) < 6:
+            qbit_options["web_ui_password"] = "adminadmin"
         try:
             await TorrentManager.qbittorrent.app.set_preferences(qbit_options)
         except Exception as e:
