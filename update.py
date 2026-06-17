@@ -33,6 +33,9 @@ if path.exists("log.txt"):
     with open("log.txt", "r+") as f:
         f.truncate(0)
 
+log_info(f"Environment keys: {list(environ.keys())}")
+log_info(f"Direct DATABASE_URL from env: {environ.get('DATABASE_URL')}")
+
 if path.exists("rlog.txt"):
     remove("rlog.txt")
 
