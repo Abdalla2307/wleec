@@ -88,6 +88,7 @@ async def update_nzb_options():
 
 
 async def load_settings():
+    LOGGER.info(f"DATABASE_URL value from Config: {Config.DATABASE_URL}")
     if not Config.DATABASE_URL:
         return
     for p in ["thumbnails", "tokens", "rclone"]:
