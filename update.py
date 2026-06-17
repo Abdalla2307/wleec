@@ -70,6 +70,7 @@ if not BOT_TOKEN:
 BOT_ID = BOT_TOKEN.split(":", 1)[0]
 
 if DATABASE_URL := config_file.get("DATABASE_URL", "").strip():
+    log_info(f"DATABASE_URL value: {DATABASE_URL}")
     try:
         conn = MongoClient(DATABASE_URL, server_api=ServerApi("1"))
         db = conn.wzmlx
