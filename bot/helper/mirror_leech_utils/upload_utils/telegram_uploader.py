@@ -1,7 +1,7 @@
 from asyncio import sleep
 from logging import getLogger
 from os import path as ospath, walk
-from re import match as re_match, sub as re_sub
+from re import escape as re_escape, match as re_match, sub as re_sub
 from time import time
 
 from aioshutil import rmtree
@@ -45,6 +45,7 @@ from ...ext_utils.media_utils import (
     get_video_thumbnail,
     get_md5_hash,
 )
+from ...ext_utils.thumb_utils import extract_thumb_match_name, normalize_thumb_name
 from ...telegram_helper.message_utils import delete_message
 
 LOGGER = getLogger(__name__)
@@ -77,6 +78,13 @@ class TelegramUploader:
         self._log_msg = None
         self._user_session = self._listener.user_transmission
         self._error = ""
+        self._is_dump_chat = False
+        self._thumball_map = {}
+        self._thumball_ambiguous = set()
+        if Config.LEECH_DUMP_CHAT and self._listener.up_dest:
+            self._is_dump_chat = str(self._listener.up_dest) == str(
+                Config.LEECH_DUMP_CHAT
+            )
 
     async def _upload_progress(self, current, _):
         if self._listener.is_cancelled:
@@ -87,6 +95,48 @@ class TelegramUploader:
         chunk_size = current - self._last_uploaded
         self._last_uploaded = current
         self._processed_bytes += chunk_size
+
+    def _build_thumball_map(self):
+        raw_map = self._listener.user_dict.get("THUMBNAIL_ALL") or {}
+        normalized_map = {}
+        ambiguous_keys = set()
+        for alias, thumb_path in raw_map.items():
+            normalized_alias = normalize_thumb_name(alias)
+            if not normalized_alias or not thumb_path:
+                continue
+            old_path = normalized_map.get(normalized_alias)
+            if old_path and old_path != thumb_path:
+                ambiguous_keys.add(normalized_alias)
+                continue
+            normalized_map[normalized_alias] = thumb_path
+        self._thumball_ambiguous = ambiguous_keys
+        return normalized_map
+
+    def _get_thumball_match(self, file_name):
+        if not self._thumball_map or self._listener.thumb or self._thumb == "none":
+            return None
+
+        base_key = normalize_thumb_name(ospath.splitext(file_name)[0])
+        if base_key and base_key not in self._thumball_ambiguous:
+            thumb = self._thumball_map.get(base_key)
+            if thumb:
+                return thumb
+
+        match_key = extract_thumb_match_name(file_name)
+        if match_key and match_key not in self._thumball_ambiguous:
+            return self._thumball_map.get(match_key)
+
+        return None
+
+    def _get_thumball_default(self):
+        if not self._thumball_map:
+            return None
+        return self._thumball_map.get(normalize_thumb_name("org"))
+
+    def _should_cleanup_thumb(self, thumb):
+        if self._thumb is not None or thumb is None or thumb == "none":
+            return False
+        return thumb not in self._thumball_map.values()
 
     async def _user_settings(self):
         settings_map = {
@@ -105,11 +155,18 @@ class TelegramUploader:
                 self._listener.user_dict.get(key) or getattr(Config, key, default),
             )
 
+        self._thumball_map = self._build_thumball_map()
+
         if self._thumb != "none" and not await aiopath.exists(self._thumb):
             self._thumb = None
+        if self._is_dump_chat:
+            self._media_group = False
 
     async def _msg_to_reply(self):
         if self._listener.up_dest:
+            if self._is_dump_chat:
+                self._sent_msg = None
+                return True
             msg_link = (
                 self._listener.message.link if self._listener.is_super_chat else ""
             )
@@ -258,6 +315,24 @@ class TelegramUploader:
 
         return cap_mono
 
+    def _strip_dump_caption_extension(self, caption: str) -> str:
+        if not caption:
+            return caption
+        if self._lprefix:
+            caption = re_sub(
+                rf"(^\s*(?:<\w+>)?)\s*{re_escape(self._lprefix)}",
+                r"\1",
+                caption,
+                count=1,
+            )
+        # Remove [EFlix.Plus] tag if present (anywhere in caption)
+        caption = re_sub(r"\[EFlix\.Plus\]", "", caption).strip()
+        return re_sub(
+            r"(?i)(?:\.mp4|\.mkv)(?=\s*(?:</\w+>)*\s*$)",
+            "",
+            caption,
+        )
+
     def _get_input_media(self, subkey, key):
         rlist = []
         for msg in self._media_dict[key][subkey]:
@@ -343,7 +418,8 @@ class TelegramUploader:
             if dirpath.strip().endswith("/yt-dlp-thumb"):
                 continue
             if dirpath.strip().endswith("_mltbss"):
-                await self._send_screenshots(dirpath, files)
+                if not self._is_dump_chat:
+                    await self._send_screenshots(dirpath, files)
                 await rmtree(dirpath, ignore_errors=True)
                 continue
             for file_ in natsorted(files):
@@ -449,19 +525,20 @@ class TelegramUploader:
         retry=retry_if_exception_type(Exception),
     )
     async def _upload_file(self, cap_mono, file, o_path, force_document=False):
-        if self._sent_msg is None:
-            LOGGER.error("Cannot upload: _sent_msg is None")
-            await self._listener.on_upload_error(
-                "Upload failed: Message not initialized"
-            )
-            return
+        if not self._is_dump_chat:
+            if self._sent_msg is None:
+                LOGGER.error("Cannot upload: _sent_msg is None")
+                await self._listener.on_upload_error(
+                    "Upload failed: Message not initialized"
+                )
+                return
 
-        if not hasattr(self._sent_msg, "chat") or self._sent_msg.chat is None:
-            LOGGER.error("Cannot upload: _sent_msg.chat is None")
-            await self._listener.on_upload_error(
-                "Upload failed: Invalid message object"
-            )
-            return
+            if not hasattr(self._sent_msg, "chat") or self._sent_msg.chat is None:
+                LOGGER.error("Cannot upload: _sent_msg.chat is None")
+                await self._listener.on_upload_error(
+                    "Upload failed: Invalid message object"
+                )
+                return
 
         if (
             self._thumb is not None
@@ -470,9 +547,18 @@ class TelegramUploader:
         ):
             self._thumb = None
         thumb = self._thumb
+        thumball_match = self._get_thumball_match(file)
+        if thumball_match and await aiopath.exists(thumball_match):
+            thumb = thumball_match
+        elif thumb is None:
+            thumball_default = self._get_thumball_default()
+            if thumball_default and await aiopath.exists(thumball_default):
+                thumb = thumball_default
         self._is_corrupted = False
         try:
             is_video, is_audio, is_image = await get_document_type(self._up_path)
+            if self._is_dump_chat and is_video:
+                cap_mono = self._strip_dump_caption_extension(cap_mono)
 
             if not is_image and thumb is None:
                 file_name = ospath.splitext(file)[0]
@@ -497,15 +583,27 @@ class TelegramUploader:
                     return
                 if thumb == "none":
                     thumb = None
-                self._sent_msg = await self._sent_msg.reply_document(
-                    document=self._up_path,
-                    quote=True,
-                    thumb=thumb,
-                    caption=cap_mono,
-                    disable_content_type_detection=True,
-                    disable_notification=True,
-                    progress=self._upload_progress,
-                )
+                if self._is_dump_chat:
+                    self._sent_msg = await TgClient.bot.send_document(
+                        chat_id=self._listener.up_dest,
+                        document=self._up_path,
+                        thumb=thumb,
+                        caption=cap_mono,
+                        disable_content_type_detection=True,
+                        disable_notification=True,
+                        message_thread_id=self._listener.chat_thread_id,
+                        progress=self._upload_progress,
+                    )
+                else:
+                    self._sent_msg = await self._sent_msg.reply_document(
+                        document=self._up_path,
+                        quote=True,
+                        thumb=thumb,
+                        caption=cap_mono,
+                        disable_content_type_detection=True,
+                        disable_notification=True,
+                        progress=self._upload_progress,
+                    )
             elif is_video:
                 key = "videos"
                 duration = (await get_media_info(self._up_path))[0]
@@ -527,18 +625,33 @@ class TelegramUploader:
                     return
                 if thumb == "none":
                     thumb = None
-                self._sent_msg = await self._sent_msg.reply_video(
-                    video=self._up_path,
-                    quote=True,
-                    caption=cap_mono,
-                    duration=duration,
-                    width=width,
-                    height=height,
-                    thumb=thumb,
-                    supports_streaming=True,
-                    disable_notification=True,
-                    progress=self._upload_progress,
-                )
+                if self._is_dump_chat:
+                    self._sent_msg = await TgClient.bot.send_video(
+                        chat_id=self._listener.up_dest,
+                        video=self._up_path,
+                        caption=cap_mono,
+                        duration=duration,
+                        width=width,
+                        height=height,
+                        thumb=thumb,
+                        supports_streaming=True,
+                        disable_notification=True,
+                        message_thread_id=self._listener.chat_thread_id,
+                        progress=self._upload_progress,
+                    )
+                else:
+                    self._sent_msg = await self._sent_msg.reply_video(
+                        video=self._up_path,
+                        quote=True,
+                        caption=cap_mono,
+                        duration=duration,
+                        width=width,
+                        height=height,
+                        thumb=thumb,
+                        supports_streaming=True,
+                        disable_notification=True,
+                        progress=self._upload_progress,
+                    )
             elif is_audio:
                 key = "audios"
                 duration, artist, title = await get_media_info(self._up_path)
@@ -546,28 +659,52 @@ class TelegramUploader:
                     return
                 if thumb == "none":
                     thumb = None
-                self._sent_msg = await self._sent_msg.reply_audio(
-                    audio=self._up_path,
-                    quote=True,
-                    caption=cap_mono,
-                    duration=duration,
-                    performer=artist,
-                    title=title,
-                    thumb=thumb,
-                    disable_notification=True,
-                    progress=self._upload_progress,
-                )
+                if self._is_dump_chat:
+                    self._sent_msg = await TgClient.bot.send_audio(
+                        chat_id=self._listener.up_dest,
+                        audio=self._up_path,
+                        caption=cap_mono,
+                        duration=duration,
+                        performer=artist,
+                        title=title,
+                        thumb=thumb,
+                        disable_notification=True,
+                        message_thread_id=self._listener.chat_thread_id,
+                        progress=self._upload_progress,
+                    )
+                else:
+                    self._sent_msg = await self._sent_msg.reply_audio(
+                        audio=self._up_path,
+                        quote=True,
+                        caption=cap_mono,
+                        duration=duration,
+                        performer=artist,
+                        title=title,
+                        thumb=thumb,
+                        disable_notification=True,
+                        progress=self._upload_progress,
+                    )
             else:
                 key = "photos"
                 if self._listener.is_cancelled:
                     return
-                self._sent_msg = await self._sent_msg.reply_photo(
-                    photo=self._up_path,
-                    quote=True,
-                    caption=cap_mono,
-                    disable_notification=True,
-                    progress=self._upload_progress,
-                )
+                if self._is_dump_chat:
+                    self._sent_msg = await TgClient.bot.send_photo(
+                        chat_id=self._listener.up_dest,
+                        photo=self._up_path,
+                        caption=cap_mono,
+                        disable_notification=True,
+                        message_thread_id=self._listener.chat_thread_id,
+                        progress=self._upload_progress,
+                    )
+                else:
+                    self._sent_msg = await self._sent_msg.reply_photo(
+                        photo=self._up_path,
+                        quote=True,
+                        caption=cap_mono,
+                        disable_notification=True,
+                        progress=self._upload_progress,
+                    )
 
             if (
                 not self._listener.is_cancelled
@@ -616,28 +753,16 @@ class TelegramUploader:
                                 f"Failed to forward to {self._listener.leech_dest}\n{e}",
                             )
 
-            if (
-                self._thumb is None
-                and thumb is not None
-                and await aiopath.exists(thumb)
-            ):
+            if self._should_cleanup_thumb(thumb) and await aiopath.exists(thumb):
                 await remove(thumb)
         except (FloodWait, FloodPremiumWait) as f:
             LOGGER.warning(str(f))
             await sleep(f.value * 1.3)
-            if (
-                self._thumb is None
-                and thumb is not None
-                and await aiopath.exists(thumb)
-            ):
+            if self._should_cleanup_thumb(thumb) and await aiopath.exists(thumb):
                 await remove(thumb)
             return await self._upload_file(cap_mono, file, o_path)
         except Exception as err:
-            if (
-                self._thumb is None
-                and thumb is not None
-                and await aiopath.exists(thumb)
-            ):
+            if self._should_cleanup_thumb(thumb) and await aiopath.exists(thumb):
                 await remove(thumb)
             err_type = "RPCError: " if isinstance(err, RPCError) else ""
             LOGGER.error(f"{err_type}{err}. Path: {self._up_path}", exc_info=True)

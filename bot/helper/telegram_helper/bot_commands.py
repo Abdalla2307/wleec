@@ -1,5 +1,10 @@
+from logging import getLogger
+from re import sub
+
 from ...core.config_manager import Config
 from ...core.plugin_manager import get_plugin_manager
+
+LOGGER = getLogger(__name__)
 
 
 class BotCommands:
@@ -48,6 +53,9 @@ class BotCommands:
         "RmSudo": ["rmsudo", "rs"],
         "BotSet": ["bsetting", "bs"],
         "UserSet": ["usetting", "us"],
+        "ThumbAll": "thumball",
+        "Thumb": "thumb",
+        "ThumbD": "thumbd",
         "Select": ["select", "sel"],
         "NzbSearch": ["nzbsearch", "ns"],
         "Plugins": "plugins",
@@ -72,9 +80,36 @@ class BotCommands:
 
         return commands
 
+
+
+    @classmethod
+    def _normalized_suffix(cls):
+        suffix = (Config.CMD_SUFFIX or "").strip().lstrip("/").lower()
+        if not suffix:
+            return ""
+        normalized = sub(r"[^a-z0-9_]", "", suffix)
+        if normalized != suffix:
+            LOGGER.warning(
+                "CMD_SUFFIX contains unsupported characters. Using sanitized suffix: '%s'",
+                normalized,
+            )
+        return normalized
+
+    @classmethod
+    def _build_command(cls, command: str, suffix: str) -> str:
+        full = f"{command}{suffix}"
+        if len(full) > 32:
+            LOGGER.warning(
+                "Command '%s' exceeds Telegram 32-char limit after CMD_SUFFIX. Truncating.",
+                full,
+            )
+            return full[:32]
+        return full
+
     @classmethod
     def _build_command_vars(cls):
         commands = cls.get_commands()
+        suffix = cls._normalized_suffix()
 
         for key, cmds in commands.items():
             setattr(
@@ -83,14 +118,14 @@ class BotCommands:
                 (
                     [
                         (
-                            f"{cmd}{Config.CMD_SUFFIX}"
+                            cls._build_command(cmd, suffix)
                             if cmd not in ["restartall", "statusall"]
                             else cmd
                         )
                         for cmd in cmds
                     ]
                     if isinstance(cmds, list)
-                    else f"{cmds}{Config.CMD_SUFFIX}"
+                    else cls._build_command(cmds, suffix)
                 ),
             )
 

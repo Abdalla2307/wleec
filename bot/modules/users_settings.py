@@ -3,8 +3,9 @@ from functools import partial
 from html import escape
 from io import BytesIO
 from os import getcwd
-from re import sub
 from time import time
+from re import sub
+from ..helper.ext_utils.thumb_utils import parse_thumb_caption
 
 from aiofiles.os import makedirs, remove
 from aiofiles.os import path as aiopath
@@ -1097,6 +1098,174 @@ async def set_option(_, message, option, rfunc):
     await database.update_user_data(user_id)
 
 
+@new_task
+async def thumball(client, message):
+    user_id = message.from_user.id
+    if handler_dict.get(user_id):
+        await send_message(message, "Another setting action is already running.")
+        return
+    handler_dict[user_id] = True
+    start_time = update_time = time()
+    info_message = await send_message(
+        message,
+        "⌬ <b>ThumbAll Scheduler</b>\n\n"
+        "• Send photo(s) with caption(s) that contain the thumbnail name(s).\n"
+        "• You can use multiple names by separating with comma, |, or new line.\n"
+        "• Every thumbnail is saved immediately to database.\n"
+        "• Type <code>ok</code> when finished.\n"
+        "• Type <code>stop</code> to cancel.\n"
+        "┖ <b>Time Left :</b> <code>60 sec</code>",
+    )
+
+    async def event_filter(_, __, event):
+        user = event.from_user or event.sender_chat
+        return bool(
+            user
+            and user.id == user_id
+            and event.chat.id == message.chat.id
+            and (event.photo or event.document or event.text)
+        )
+
+    async def handle_thumball(_, event):
+        if event.text:
+            text = event.text.strip().lower()
+            if text == "ok":
+                handler_dict[user_id] = False
+            elif text in ["stop", "cancel"]:
+                handler_dict[user_id] = False
+                await send_message(message, "ThumbAll scheduling cancelled.")
+            else:
+                await send_message(message, "Send a photo or type <code>ok</code>.")
+            return
+
+        if event.document and event.document.mime_type:
+            if not event.document.mime_type.startswith("image/"):
+                await send_message(
+                    message, "Only images are supported for thumbnail scheduling."
+                )
+                return
+
+        aliases = parse_thumb_caption(event.caption or "")
+        if not aliases:
+            await send_message(
+                message, "Please add a caption with the thumbnail name(s)."
+            )
+            return
+
+        thumb_path = await create_thumb(
+            event, f"{user_id}_thumball_{int(time() * 1000)}"
+        )
+        current = dict(user_data.get(user_id, {}).get("THUMBNAIL_ALL", {}))
+        max_thumball = 400
+        fresh_aliases = [alias for alias in aliases if alias not in current]
+        if len(current) + len(fresh_aliases) > max_thumball:
+            await send_message(
+                message,
+                f"Thumbnail limit reached. You can store up to <b>{max_thumball}</b> names.",
+            )
+            if await aiopath.exists(thumb_path):
+                await remove(thumb_path)
+            return
+
+        replaced_paths = set()
+        for alias in aliases:
+            old_path = current.get(alias)
+            current[alias] = thumb_path
+            if old_path and old_path != thumb_path:
+                replaced_paths.add(old_path)
+
+        active_paths = set(current.values())
+        for old_path in replaced_paths:
+            if (
+                old_path not in active_paths
+                and old_path.startswith("thumbnails/")
+                and await aiopath.exists(old_path)
+            ):
+                await remove(old_path)
+
+        update_user_ldata(user_id, "THUMBNAIL_ALL", current)
+        await database.update_user_thumbnails_all(user_id, current)
+        await send_message(
+            message,
+            f"Saved <b>{len(aliases)}</b> thumbnail name(s) to database.",
+        )
+
+    handler = client.add_handler(
+        MessageHandler(handle_thumball, filters=create(event_filter)), group=-1
+    )
+
+    while handler_dict[user_id]:
+        await sleep(0.5)
+        if time() - start_time > 60:
+            handler_dict[user_id] = False
+            await send_message(message, "ThumbAll scheduling timed out.")
+        elif time() - update_time > 8 and handler_dict[user_id]:
+            update_time = time()
+            msg = await client.get_messages(info_message.chat.id, info_message.id)
+            text = msg.text.split("\n")
+            text[-1] = (
+                f"┖ <b>Time Left :</b> <code>{round(60 - (time() - start_time), 2)} sec</code>"
+            )
+            await edit_message(msg, "\n".join(text), msg.reply_markup)
+
+    client.remove_handler(*handler)
+
+
+@new_task
+async def thumb_list(client, message):
+    user_id = message.from_user.id
+    thumb_map = user_data.get(user_id, {}).get("THUMBNAIL_ALL", {})
+    if not thumb_map:
+        await send_message(message, "No thumbnail names saved yet.")
+        return
+    names = sorted(thumb_map.keys())
+    list_lines = "\n".join(f"• <code>{escape(name)}</code>" for name in names)
+    await send_message(
+        message,
+        f"<b>Saved thumbnail names ({len(names)}):</b>\n{list_lines}",
+    )
+
+
+@new_task
+async def thumb_delete(client, message):
+    user_id = message.from_user.id
+    text = message.text or ""
+    parts = text.split(maxsplit=1)
+    if len(parts) < 2:
+        await send_message(
+            message,
+            "Send the thumbnail name(s) after the command. Example: <code>/thumbd name1, name2</code>",
+        )
+        return
+    aliases = parse_thumb_caption(parts[1])
+    if not aliases:
+        await send_message(message, "Please provide valid thumbnail name(s).")
+        return
+    current = user_data.get(user_id, {}).get("THUMBNAIL_ALL", {})
+    if not current:
+        await send_message(message, "No thumbnail names saved yet.")
+        return
+    updated = dict(current)
+    removed = {}
+    for alias in aliases:
+        if alias in updated:
+            removed[alias] = updated.pop(alias)
+    if not removed:
+        await send_message(message, "No matching thumbnail names were found.")
+        return
+    update_user_ldata(user_id, "THUMBNAIL_ALL", updated)
+    await database.update_user_thumbnails_all(user_id, updated)
+    remaining_paths = set(updated.values())
+    for path in set(removed.values()):
+        if path not in remaining_paths and await aiopath.exists(path):
+            await remove(path)
+    removed_names = ", ".join(f"<code>{escape(name)}</code>" for name in removed)
+    await send_message(
+        message,
+        f"Removed <b>{len(removed)}</b> thumbnail name(s): {removed_names}",
+    )
+
+
 async def get_menu(option, message, user_id):
     handler_dict[user_id] = False
     user_dict = user_data.get(user_id, {})
@@ -1412,14 +1581,19 @@ async def edit_user_settings(client, query):
         if data[3] == "yes":
             await query.answer("Reset Done!", show_alert=True)
             user_dict = user_data.get(user_id, {})
+            thumb_all = user_dict.get("THUMBNAIL_ALL", {})
             for k in list(user_dict.keys()):
                 if k not in ("SUDO", "AUTH", "VERIFY_TOKEN", "VERIFY_TIME"):
                     del user_dict[k]
             for fpath in [thumb_path, rclone_conf, token_pickle, yt_cookie_path]:
                 if await aiopath.exists(fpath):
                     await remove(fpath)
+            for fpath in thumb_all.values():
+                if await aiopath.exists(fpath):
+                    await remove(fpath)
             await update_user_settings(query)
             await database.update_user_data(user_id)
+            await database.update_user_thumbnails_all(user_id, {})
         else:
             await query.answer("Reset Cancelled.", show_alert=True)
             await update_user_settings(query)

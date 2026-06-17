@@ -392,6 +392,9 @@ def get_bot_commands():
         "YtdlLeech": "[link] Leech YouTube, m3u8, Social Media and yt-dlp supported urls",
         "Clone": "[link] Clone files/folders to GDrive",
         "UserSet": "User personal settings",
+        "ThumbAll": "Schedule multiple thumbnails with captions",
+        "Thumb": "List saved thumbnail names",
+        "ThumbD": "Delete thumbnail names",
         "ForceStart": "[gid/reply] Force start from queued task",
         "Count": "[link] Count no. of files/folders in GDrive",
         "List": "[query] Search any Text which is available in GDrive",
@@ -482,6 +485,16 @@ def get_help_string():
             )
         elif key == "UserSet":
             help_lines.append(f"{cmd_str} [query]: Users settings.")
+        elif key == "ThumbAll":
+            help_lines.append(
+                f"{cmd_str}: Schedule multiple thumbnails mapped to captions."
+            )
+        elif key == "Thumb":
+            help_lines.append(f"{cmd_str}: List saved thumbnail names.")
+        elif key == "ThumbD":
+            help_lines.append(
+                f"{cmd_str} [names]: Delete saved thumbnail names by caption."
+            )
         elif key == "BotSet":
             help_lines.append(f"{cmd_str} [query]: Bot settings.")
         elif key == "Select":

@@ -110,7 +110,13 @@ class DbManager:
             return
         data = user_data.get(user_id, {})
         data = data.copy()
-        for key in ("THUMBNAIL", "RCLONE_CONFIG", "TOKEN_PICKLE", "USER_COOKIE_FILE"):
+        for key in (
+            "THUMBNAIL",
+            "RCLONE_CONFIG",
+            "TOKEN_PICKLE",
+            "USER_COOKIE_FILE",
+            "THUMBNAIL_ALL",
+        ):
             data.pop(key, None)
         pipeline = [
             {
@@ -131,6 +137,7 @@ class DbManager:
                                                     "RCLONE_CONFIG",
                                                     "TOKEN_PICKLE",
                                                     "USER_COOKIE_FILE",
+                                                    "THUMBNAIL_ALL",
                                                 ],
                                             ]
                                         },
@@ -144,6 +151,23 @@ class DbManager:
         ]
         await self.db.users[TgClient.ID].update_one(
             {"_id": user_id}, pipeline, upsert=True
+        )
+
+    async def update_user_thumbnails_all(self, user_id, thumb_map=None):
+        if self._return:
+            return
+        if not thumb_map:
+            await self.db.users[TgClient.ID].update_one(
+                {"_id": user_id}, {"$unset": {"THUMBNAIL_ALL": ""}}, upsert=True
+            )
+            return
+        encoded = {}
+        for alias, path in thumb_map.items():
+            if await aiopath.exists(path):
+                async with aiopen(path, "rb+") as doc:
+                    encoded[alias] = await doc.read()
+        await self.db.users[TgClient.ID].update_one(
+            {"_id": user_id}, {"$set": {"THUMBNAIL_ALL": encoded}}, upsert=True
         )
 
     async def update_user_doc(self, user_id, key, path=""):
