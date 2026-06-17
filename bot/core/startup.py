@@ -40,18 +40,29 @@ async def update_qb_options():
                 "qBittorrent is not initialized. Skipping qBittorrent options update."
             )
             return
-        opt = await TorrentManager.qbittorrent.app.preferences()
-        qbit_options.update(opt)
-        del qbit_options["listen_port"]
-        for k in list(qbit_options.keys()):
-            if k.startswith("rss"):
-                del qbit_options[k]
-        qbit_options["web_ui_password"] = "admin"
-        await TorrentManager.qbittorrent.app.set_preferences(
-            {"web_ui_password": "admin"}
-        )
+        try:
+            opt = await TorrentManager.qbittorrent.app.preferences()
+            qbit_options.update(opt)
+            del qbit_options["listen_port"]
+            for k in list(qbit_options.keys()):
+                if k.startswith("rss"):
+                    del qbit_options[k]
+            qbit_options["web_ui_password"] = "adminadmin"
+            await TorrentManager.qbittorrent.app.set_preferences(
+                {"web_ui_password": "adminadmin"}
+            )
+        except Exception as e:
+            LOGGER.error(f"Failed to configure qBittorrent: {e}")
     else:
-        await TorrentManager.qbittorrent.app.set_preferences(qbit_options)
+        if "web_ui_password" not in qbit_options or len(str(qbit_options["web_ui_password"])) < 6:
+            qbit_options["web_ui_password"] = "adminadmin"
+        LOGGER.info(f"qbit_options keys: {list(qbit_options.keys())}")
+        LOGGER.info(f"qbit_options web_ui_password value: {qbit_options.get('web_ui_password')}")
+        try:
+            await TorrentManager.qbittorrent.app.set_preferences(qbit_options)
+        except Exception as e:
+            LOGGER.error(f"Failed to configure qBittorrent: {e}")
+
 
 
 async def update_aria2_options():
@@ -77,6 +88,7 @@ async def update_nzb_options():
 
 
 async def load_settings():
+    LOGGER.info(f"DATABASE_URL value from Config: {Config.DATABASE_URL}")
     if not Config.DATABASE_URL:
         return
     for p in ["thumbnails", "tokens", "rclone"]:

@@ -3,6 +3,7 @@ FROM mysterysd/wzmlx:v3
 WORKDIR /usr/src/app
 
 RUN chmod 777 /usr/src/app
+RUN apt-get update && apt-get install -y file
 RUN uv venv --system-site-packages
 
 COPY requirements.txt .

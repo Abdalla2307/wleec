@@ -1156,6 +1156,17 @@ async def thumball(client, message):
             event, f"{user_id}_thumball_{int(time() * 1000)}"
         )
         current = dict(user_data.get(user_id, {}).get("THUMBNAIL_ALL", {}))
+        max_thumball = 400
+        fresh_aliases = [alias for alias in aliases if alias not in current]
+        if len(current) + len(fresh_aliases) > max_thumball:
+            await send_message(
+                message,
+                f"Thumbnail limit reached. You can store up to <b>{max_thumball}</b> names.",
+            )
+            if await aiopath.exists(thumb_path):
+                await remove(thumb_path)
+            return
+
         replaced_paths = set()
         for alias in aliases:
             old_path = current.get(alias)
