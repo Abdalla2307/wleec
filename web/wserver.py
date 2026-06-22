@@ -44,11 +44,30 @@ SERVICES = {
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global aria2, qbittorrent
-    aria2 = Aria2HttpClient("http://localhost:6800/jsonrpc")
-    qbittorrent = await create_client("http://localhost:8090/api/v2/")
+    try:
+        aria2 = Aria2HttpClient("http://localhost:6800/jsonrpc")
+    except Exception as e:
+        LOGGER.warning(f"FastAPI: Failed to initialize Aria2HttpClient: {e}")
+        aria2 = None
+
+    try:
+        qbittorrent = await create_client("http://localhost:8090/api/v2/")
+    except Exception as e:
+        LOGGER.warning(f"FastAPI: Failed to initialize qBittorrent client: {e}")
+        qbittorrent = None
+
     yield
-    await aria2.close()
-    await qbittorrent.close()
+
+    if aria2:
+        try:
+            await aria2.close()
+        except Exception:
+            pass
+    if qbittorrent:
+        try:
+            await qbittorrent.close()
+        except Exception:
+            pass
 
 
 app = FastAPI(lifespan=lifespan)

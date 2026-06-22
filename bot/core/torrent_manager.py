@@ -73,6 +73,8 @@ class TorrentManager:
 
     @classmethod
     async def aria2_remove(cls, download):
+        if not cls.aria2:
+            return
         if download.get("status", "") in ["active", "paused", "waiting"]:
             await cls.aria2.forceRemove(download.get("gid", ""))
         else:
@@ -82,48 +84,55 @@ class TorrentManager:
     @classmethod
     async def remove_all(cls):
         await cls.pause_all()
+        if not cls.aria2 and not cls.qbittorrent:
+            return
+        delete_tasks = []
         if cls.qbittorrent:
-            await gather(
-                cls.qbittorrent.torrents.delete("all", False),
-                cls.aria2.purgeDownloadResult(),
+            delete_tasks.append(cls.qbittorrent.torrents.delete("all", False))
+        if cls.aria2:
+            delete_tasks.append(cls.aria2.purgeDownloadResult())
+        if delete_tasks:
+            await gather(*delete_tasks)
+        if cls.aria2:
+            downloads = []
+            results = await gather(cls.aria2.tellActive(), cls.aria2.tellWaiting(0, 1000))
+            for res in results:
+                downloads.extend(res)
+            tasks = []
+            tasks.extend(
+                cls.aria2.forceRemove(download.get("gid")) for download in downloads
             )
-        else:
-            await gather(
-                cls.aria2.purgeDownloadResult(),
-            )
-        downloads = []
-        results = await gather(cls.aria2.tellActive(), cls.aria2.tellWaiting(0, 1000))
-        for res in results:
-            downloads.extend(res)
-        tasks = []
-        tasks.extend(
-            cls.aria2.forceRemove(download.get("gid")) for download in downloads
-        )
-        with suppress(Exception):
-            await gather(*tasks)
+            with suppress(Exception):
+                await gather(*tasks)
 
     @classmethod
     async def overall_speed(cls):
-        aria2_speed = await cls.aria2.getGlobalStat()
-        download_speed = int(aria2_speed.get("downloadSpeed", "0"))
-        upload_speed = int(aria2_speed.get("uploadSpeed", "0"))
-
+        download_speed = 0
+        upload_speed = 0
+        if cls.aria2:
+            aria2_speed = await cls.aria2.getGlobalStat()
+            download_speed += int(aria2_speed.get("downloadSpeed", "0"))
+            upload_speed += int(aria2_speed.get("uploadSpeed", "0"))
         if cls.qbittorrent:
             qb_speed = await cls.qbittorrent.transfer.info()
             download_speed += qb_speed.dl_info_speed
             upload_speed += qb_speed.up_info_speed
-
         return download_speed, upload_speed
 
     @classmethod
     async def pause_all(cls):
-        pause_tasks = [cls.aria2.forcePauseAll()]
+        pause_tasks = []
+        if cls.aria2:
+            pause_tasks.append(cls.aria2.forcePauseAll())
         if cls.qbittorrent:
             pause_tasks.append(cls.qbittorrent.torrents.stop("all"))
-        await gather(*pause_tasks)
+        if pause_tasks:
+            await gather(*pause_tasks)
 
     @classmethod
     async def change_aria2_option(cls, key, value):
+        if not cls.aria2:
+            return
         downloads = []
         results = await gather(cls.aria2.tellActive(), cls.aria2.tellWaiting(0, 1000))
         for res in results:
