@@ -109,31 +109,45 @@ try:
 except Exception as e:
     LOGGER.warning("Failed to create patched_bin_dir: %s", e)
 
-binary_mappings = {
-    "ARIA2_NAME": BinConfig.ARIA2_NAME,
-    "QBIT_NAME": BinConfig.QBIT_NAME,
-    "SABNZBD_NAME": BinConfig.SABNZBD_NAME,
-    "FFMPEG_NAME": BinConfig.FFMPEG_NAME,
-    "RCLONE_NAME": BinConfig.RCLONE_NAME,
+# 1. List contents of /usr/local/bin and /usr/bin to see what exists
+for bin_dir in ["/usr/local/bin", "/usr/bin"]:
+    if os.path.exists(bin_dir):
+        try:
+            files = os.listdir(bin_dir)
+            LOGGER.info("Files in %s: %s", bin_dir, files)
+        except Exception as e:
+            LOGGER.warning("Failed to list %s: %s", bin_dir, e)
+
+# Mapping from config names to possible source names in the base image
+binary_search_map = {
+    "ARIA2_NAME": (BinConfig.ARIA2_NAME, ["blitzfetcher", "aria2c"]),
+    "QBIT_NAME": (BinConfig.QBIT_NAME, ["stormtorrent", "qbittorrent-nox", "qbittorrent"]),
+    "SABNZBD_NAME": (BinConfig.SABNZBD_NAME, ["newsripper", "sabnzbdplus", "sabnzbd"]),
+    "FFMPEG_NAME": (BinConfig.FFMPEG_NAME, ["mediaforge", "ffmpeg"]),
+    "RCLONE_NAME": (BinConfig.RCLONE_NAME, ["ghostdrive", "rclone"]),
 }
 
-for config_attr, bin_name in binary_mappings.items():
+for config_attr, (target_name, search_names) in binary_search_map.items():
     orig_path = None
-    for dir_path in ["/usr/local/bin", "/usr/bin", "bin", "."]:
-        p = os.path.join(dir_path, bin_name)
-        if os.path.exists(p):
-            orig_path = p
+    # Search for any of the search names in typical directories
+    for name in search_names:
+        for dir_path in ["/usr/local/bin", "/usr/bin", "bin", "."]:
+            p = os.path.join(dir_path, name)
+            if os.path.exists(p):
+                orig_path = p
+                break
+        if orig_path:
             break
             
     if not orig_path:
-        LOGGER.warning("Binary %s NOT found in search paths.", bin_name)
+        LOGGER.warning("Could not find any source binary for %s (searched %s)", target_name, search_names)
         continue
         
-    LOGGER.info("Found original binary %s at %s (Size: %d bytes)", bin_name, orig_path, os.path.getsize(orig_path))
-    dest_path = os.path.join(patched_bin_dir, bin_name)
+    LOGGER.info("Found source binary for %s at %s (Size: %d bytes)", target_name, orig_path, os.path.getsize(orig_path))
+    dest_path = os.path.join(patched_bin_dir, target_name)
     
     try:
-        # Copy to patched_bin
+        # Copy to patched_bin with the target name
         shutil.copy2(orig_path, dest_path)
         LOGGER.info("Copied %s to local path %s", orig_path, dest_path)
         
@@ -179,9 +193,10 @@ for config_attr, bin_name in binary_mappings.items():
             LOGGER.info("Updated BinConfig.%s to %s (as fallback)", config_attr, dest_path)
             
     except Exception as e:
-        LOGGER.warning("Failed to analyze/patch binary %s: %s", bin_name, e)
+        LOGGER.warning("Failed to analyze/patch binary %s: %s", target_name, e)
 
 LOGGER.info("=== END OF BINARY DIAGNOSTICS & PATCHING ===")
+
 
 
 sabnzbd_client = SabnzbdClient(
