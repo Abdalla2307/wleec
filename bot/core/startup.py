@@ -34,12 +34,12 @@ from .torrent_manager import TorrentManager
 
 async def update_qb_options():
     LOGGER.info("Get qBittorrent options from server")
+    if not TorrentManager.qbittorrent:
+        LOGGER.warning(
+            "qBittorrent is not initialized. Skipping qBittorrent options update."
+        )
+        return
     if not qbit_options:
-        if not TorrentManager.qbittorrent:
-            LOGGER.warning(
-                "qBittorrent is not initialized. Skipping qBittorrent options update."
-            )
-            return
         opt = await TorrentManager.qbittorrent.app.preferences()
         qbit_options.update(opt)
         del qbit_options["listen_port"]
@@ -56,6 +56,9 @@ async def update_qb_options():
 
 async def update_aria2_options():
     LOGGER.info("Get aria2 options from server")
+    if not TorrentManager.aria2:
+        LOGGER.warning("Aria2 is not initialized. Skipping aria2 options update.")
+        return
     if not aria2_options:
         op = await TorrentManager.aria2.getGlobalOption()
         aria2_options.update(op)
@@ -66,14 +69,15 @@ async def update_aria2_options():
 async def update_nzb_options():
     if Config.USENET_SERVERS:
         LOGGER.info("Get SABnzbd options from server")
-        while True:
+        for _ in range(10):
             try:
                 no = (await sabnzbd_client.get_config())["config"]["misc"]
                 nzb_options.update(no)
+                break
             except Exception:
                 await sleep(0.5)
-                continue
-            break
+        else:
+            LOGGER.warning("Could not connect to SABnzbd. Skipping configuration.")
 
 
 async def load_settings():

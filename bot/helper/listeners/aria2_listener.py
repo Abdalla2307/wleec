@@ -192,8 +192,11 @@ async def _on_download_error(api, data):
 
 
 def add_aria2_callbacks():
-    TorrentManager.aria2.onBtDownloadComplete(_on_bt_download_complete)
-    TorrentManager.aria2.onDownloadComplete(_on_download_complete)
-    TorrentManager.aria2.onDownloadError(_on_download_error)
-    TorrentManager.aria2.onDownloadStart(_on_download_started)
-    TorrentManager.aria2.onDownloadStop(_on_download_stopped)
+    if TorrentManager.aria2:
+        TorrentManager.aria2.onBtDownloadComplete(_on_bt_download_complete)
+        TorrentManager.aria2.onDownloadComplete(_on_download_complete)
+        TorrentManager.aria2.onDownloadError(_on_download_error)
+        TorrentManager.aria2.onDownloadStart(_on_download_started)
+        TorrentManager.aria2.onDownloadStop(_on_download_stopped)
+    else:
+        LOGGER.warning("Aria2 is not initialized. Skipping adding callbacks.")
