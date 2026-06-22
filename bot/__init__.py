@@ -97,6 +97,28 @@ jd_listener_lock = Lock()
 cpu_eater_lock = Lock()
 same_directory_lock = Lock()
 
+# Patch FreeBSD binaries in mysterysd base image to allow them to execute on Heroku Linux hosts
+from os import path
+for bin_name in [
+    BinConfig.ARIA2_NAME,
+    BinConfig.QBIT_NAME,
+    BinConfig.SABNZBD_NAME,
+    BinConfig.FFMPEG_NAME,
+    BinConfig.RCLONE_NAME,
+]:
+    for dir_path in ["/usr/local/bin", "/usr/bin", "bin", "."]:
+        bin_path = path.join(dir_path, bin_name)
+        if path.exists(bin_path):
+            try:
+                with open(bin_path, "r+b") as f:
+                    f.seek(7)
+                    if f.read(1) == b"\x09":
+                        f.seek(7)
+                        f.write(b"\x00")
+                        LOGGER.info("Patched OS/ABI of binary to Linux: %s", bin_path)
+            except Exception as e:
+                LOGGER.warning("Failed to patch binary %s: %s", bin_path, e)
+
 sabnzbd_client = SabnzbdClient(
     host="http://localhost",
     api_key="admin",
