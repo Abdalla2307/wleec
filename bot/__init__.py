@@ -98,26 +98,91 @@ cpu_eater_lock = Lock()
 same_directory_lock = Lock()
 
 # Patch FreeBSD binaries in mysterysd base image to allow them to execute on Heroku Linux hosts
-from os import path
-for bin_name in [
-    BinConfig.ARIA2_NAME,
-    BinConfig.QBIT_NAME,
-    BinConfig.SABNZBD_NAME,
-    BinConfig.FFMPEG_NAME,
-    BinConfig.RCLONE_NAME,
-]:
+import os
+import shutil
+import subprocess
+
+LOGGER.info("=== STARTING BINARY DIAGNOSTICS & PATCHING ===")
+patched_bin_dir = "/usr/src/app/patched_bin"
+try:
+    os.makedirs(patched_bin_dir, exist_ok=True)
+except Exception as e:
+    LOGGER.warning("Failed to create patched_bin_dir: %s", e)
+
+binary_mappings = {
+    "ARIA2_NAME": BinConfig.ARIA2_NAME,
+    "QBIT_NAME": BinConfig.QBIT_NAME,
+    "SABNZBD_NAME": BinConfig.SABNZBD_NAME,
+    "FFMPEG_NAME": BinConfig.FFMPEG_NAME,
+    "RCLONE_NAME": BinConfig.RCLONE_NAME,
+}
+
+for config_attr, bin_name in binary_mappings.items():
+    orig_path = None
     for dir_path in ["/usr/local/bin", "/usr/bin", "bin", "."]:
-        bin_path = path.join(dir_path, bin_name)
-        if path.exists(bin_path):
-            try:
-                with open(bin_path, "r+b") as f:
+        p = os.path.join(dir_path, bin_name)
+        if os.path.exists(p):
+            orig_path = p
+            break
+            
+    if not orig_path:
+        LOGGER.warning("Binary %s NOT found in search paths.", bin_name)
+        continue
+        
+    LOGGER.info("Found original binary %s at %s (Size: %d bytes)", bin_name, orig_path, os.path.getsize(orig_path))
+    dest_path = os.path.join(patched_bin_dir, bin_name)
+    
+    try:
+        # Copy to patched_bin
+        shutil.copy2(orig_path, dest_path)
+        LOGGER.info("Copied %s to local path %s", orig_path, dest_path)
+        
+        # Read header
+        with open(dest_path, "rb") as f:
+            header = f.read(16)
+        LOGGER.info("Binary %s first 16 bytes: %s", dest_path, header.hex())
+        
+        # Patch OS/ABI if needed (byte index 7)
+        if header.startswith(b"\x7fELF"):
+            os_abi = header[7]
+            LOGGER.info("Binary %s OS/ABI = %d (0x%02x)", dest_path, os_abi, os_abi)
+            if os_abi == 9:
+                with open(dest_path, "r+b") as f:
                     f.seek(7)
-                    if f.read(1) == b"\x09":
-                        f.seek(7)
-                        f.write(b"\x00")
-                        LOGGER.info("Patched OS/ABI of binary to Linux: %s", bin_path)
-            except Exception as e:
-                LOGGER.warning("Failed to patch binary %s: %s", bin_path, e)
+                    f.write(b"\x00")
+                LOGGER.info("Patched OS/ABI of %s from 9 to 0 in local copy", dest_path)
+                
+            # Check interpreter path
+            with open(dest_path, "rb") as f:
+                data = f.read(4096)
+            interp_idx = data.find(b"/lib")
+            if interp_idx != -1:
+                end_idx = data.find(b"\x00", interp_idx)
+                if end_idx != -1:
+                    interp = data[interp_idx:end_idx].decode('utf-8', errors='ignore')
+                    LOGGER.info("Binary %s Dynamic Interpreter: %s", dest_path, interp)
+                    
+        # Make executable
+        os.chmod(dest_path, 0o755)
+        
+        # Test execute
+        try:
+            res = subprocess.run([dest_path, "--version"], capture_output=True, text=True, timeout=2)
+            LOGGER.info("Test execute %s: code=%d, stdout=%s, stderr=%s", dest_path, res.returncode, res.stdout[:150], res.stderr[:150])
+            # If test execution succeeds, update config
+            setattr(BinConfig, config_attr, dest_path)
+            LOGGER.info("Updated BinConfig.%s to %s", config_attr, dest_path)
+        except Exception as e:
+            LOGGER.warning("Test execute %s failed: %s", dest_path, e)
+            # Still update config as fallback
+            setattr(BinConfig, config_attr, dest_path)
+            LOGGER.info("Updated BinConfig.%s to %s (as fallback)", config_attr, dest_path)
+            
+    except Exception as e:
+        LOGGER.warning("Failed to analyze/patch binary %s: %s", bin_name, e)
+
+LOGGER.info("=== END OF BINARY DIAGNOSTICS & PATCHING ===")
+
 
 sabnzbd_client = SabnzbdClient(
     host="http://localhost",
