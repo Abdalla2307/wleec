@@ -44,6 +44,18 @@ SERVICES = {
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global aria2, qbittorrent
+    import os
+    for bin_name in ["blitzfetcher", "stormtorrent", "newsripper"]:
+        for dir_path in ["/usr/local/bin", "/usr/bin"]:
+            p = os.path.join(dir_path, bin_name)
+            if os.path.exists(p):
+                try:
+                    with open(p, 'rb') as f:
+                        f.seek(7)
+                        LOGGER.info("FASTAPI ABI CHECK: %s OS/ABI = %s", p, f.read(1))
+                except Exception as e:
+                    LOGGER.info("FASTAPI ABI CHECK: %s failed: %s", p, e)
+
     try:
         aria2 = Aria2HttpClient("http://localhost:6800/jsonrpc")
     except Exception as e:
