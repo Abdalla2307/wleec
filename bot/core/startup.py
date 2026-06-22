@@ -157,6 +157,11 @@ async def load_settings():
                 {"_id": BOT_ID}, {"_id": 0}
             ):
                 qbit_options.update(qbit_opt)
+                if qbit_options.get("web_ui_password") and len(qbit_options["web_ui_password"]) < 6:
+                    if qbit_options["web_ui_password"] == "admin":
+                        qbit_options["web_ui_password"] = "admin123"
+                    else:
+                        qbit_options["web_ui_password"] = qbit_options["web_ui_password"] + "123"
 
         if nzb_opt := await database.db.settings.nzb.find_one(
             {"_id": BOT_ID}, {"_id": 0}
