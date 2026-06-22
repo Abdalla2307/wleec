@@ -46,11 +46,16 @@ async def update_qb_options():
         for k in list(qbit_options.keys()):
             if k.startswith("rss"):
                 del qbit_options[k]
-        qbit_options["web_ui_password"] = "admin"
+        qbit_options["web_ui_password"] = "admin123"
         await TorrentManager.qbittorrent.app.set_preferences(
-            {"web_ui_password": "admin"}
+            {"web_ui_password": "admin123"}
         )
     else:
+        if qbit_options.get("web_ui_password") and len(qbit_options["web_ui_password"]) < 6:
+            if qbit_options["web_ui_password"] == "admin":
+                qbit_options["web_ui_password"] = "admin123"
+            else:
+                qbit_options["web_ui_password"] = qbit_options["web_ui_password"] + "123"
         await TorrentManager.qbittorrent.app.set_preferences(qbit_options)
 
 
