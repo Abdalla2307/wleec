@@ -102,6 +102,9 @@ sabnzbd_client = SabnzbdClient(
     api_key="admin",
     port="8070",
 )
-srun([BinConfig.QBIT_NAME, "-d", f"--profile={getcwd()}"], check=False)
+try:
+    srun([BinConfig.QBIT_NAME, "-d", f"--profile={getcwd()}"], check=False)
+except FileNotFoundError:
+    LOGGER.warning("qBittorrent binary '%s' not found. qBit features will be unavailable.", BinConfig.QBIT_NAME)
 
 scheduler = AsyncIOScheduler(event_loop=bot_loop)
