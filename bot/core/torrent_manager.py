@@ -56,9 +56,8 @@ class TorrentManager:
             cls.qbittorrent = wrap_with_retry(cls.qbittorrent)
 
         except Exception as e:
-            LOGGER.error(f"Error during initialization: {e}")
+            LOGGER.warning(f"Torrent services unavailable: {e}")
             await cls.close_all()
-            raise
 
     @classmethod
     async def close_all(cls):

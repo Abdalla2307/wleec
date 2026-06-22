@@ -354,7 +354,7 @@ async def load_configurations():
 
     if Config.DISABLE_TORRENTS:
         LOGGER.info("Torrents are disabled. Skipping qBittorrent initialization.")
-    else:
+    elif TorrentManager.qbittorrent:
         try:
             await TorrentManager.qbittorrent.app.set_preferences(qbit_options)
         except Exception as e:
