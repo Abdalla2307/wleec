@@ -241,6 +241,8 @@ class Config:
                     except Exception:
                         value = []
                 value = cls._convert_env_type(key, value)
+                if (value == "" or value is None or value == [] or value == {}) and getattr(cls, key) not in ("", None, [], {}):
+                    continue
                 setattr(cls, key, value)
         for key in ["BOT_TOKEN", "OWNER_ID", "TELEGRAM_API", "TELEGRAM_HASH"]:
             value = getattr(cls, key)

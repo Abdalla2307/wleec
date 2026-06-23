@@ -452,16 +452,17 @@ class TelegramUploader:
                                         await self._send_media_group(subkey, key, msgs)
                     if self._listener.hybrid_leech and self._listener.user_transmission:
                         self._user_session = f_size > 2097152000
-                        if self._user_session:
-                            self._sent_msg = await TgClient.user.get_messages(
-                                chat_id=self._sent_msg.chat.id,
-                                message_ids=self._sent_msg.id,
-                            )
-                        else:
-                            self._sent_msg = await self._listener.client.get_messages(
-                                chat_id=self._sent_msg.chat.id,
-                                message_ids=self._sent_msg.id,
-                            )
+                        if not self._is_dump_chat and self._sent_msg:
+                            if self._user_session and TgClient.user:
+                                self._sent_msg = await TgClient.user.get_messages(
+                                    chat_id=self._sent_msg.chat.id,
+                                    message_ids=self._sent_msg.id,
+                                )
+                            else:
+                                self._sent_msg = await self._listener.client.get_messages(
+                                    chat_id=self._sent_msg.chat.id,
+                                    message_ids=self._sent_msg.id,
+                                )
                     self._last_msg_in_group = False
                     self._last_uploaded = 0
                     await self._upload_file(cap_mono, file_, f_path)
@@ -584,7 +585,8 @@ class TelegramUploader:
                 if thumb == "none":
                     thumb = None
                 if self._is_dump_chat:
-                    self._sent_msg = await TgClient.bot.send_document(
+                    client = TgClient.user if (self._user_session and TgClient.user) else TgClient.bot
+                    self._sent_msg = await client.send_document(
                         chat_id=self._listener.up_dest,
                         document=self._up_path,
                         thumb=thumb,
@@ -626,7 +628,8 @@ class TelegramUploader:
                 if thumb == "none":
                     thumb = None
                 if self._is_dump_chat:
-                    self._sent_msg = await TgClient.bot.send_video(
+                    client = TgClient.user if (self._user_session and TgClient.user) else TgClient.bot
+                    self._sent_msg = await client.send_video(
                         chat_id=self._listener.up_dest,
                         video=self._up_path,
                         caption=cap_mono,
@@ -660,7 +663,8 @@ class TelegramUploader:
                 if thumb == "none":
                     thumb = None
                 if self._is_dump_chat:
-                    self._sent_msg = await TgClient.bot.send_audio(
+                    client = TgClient.user if (self._user_session and TgClient.user) else TgClient.bot
+                    self._sent_msg = await client.send_audio(
                         chat_id=self._listener.up_dest,
                         audio=self._up_path,
                         caption=cap_mono,
@@ -689,7 +693,8 @@ class TelegramUploader:
                 if self._listener.is_cancelled:
                     return
                 if self._is_dump_chat:
-                    self._sent_msg = await TgClient.bot.send_photo(
+                    client = TgClient.user if (self._user_session and TgClient.user) else TgClient.bot
+                    self._sent_msg = await client.send_photo(
                         chat_id=self._listener.up_dest,
                         photo=self._up_path,
                         caption=cap_mono,
@@ -709,7 +714,7 @@ class TelegramUploader:
             if (
                 not self._listener.is_cancelled
                 and self._media_group
-                and (self._sent_msg.video or self._sent_msg.document)
+                and self._sent_msg and (self._sent_msg.video or self._sent_msg.document)
             ):
                 key = "documents" if self._sent_msg.document else "videos"
                 if match := re_match(r".+(?=\.0*\d+$)|.+(?=\.part\d+\..+$)", o_path):
