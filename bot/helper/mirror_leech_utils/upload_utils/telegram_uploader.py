@@ -184,10 +184,16 @@ class TelegramUploader:
                 )
                 self._sent_msg = self._log_msg
                 if self._user_session:
-                    self._sent_msg = await TgClient.user.get_messages(
-                        chat_id=self._sent_msg.chat.id,
-                        message_ids=self._sent_msg.id,
-                    )
+                    if TgClient.user:
+                        try:
+                            user_msg = await TgClient.user.get_messages(
+                                chat_id=self._sent_msg.chat.id,
+                                message_ids=self._sent_msg.id,
+                            )
+                            if user_msg:
+                                self._sent_msg = user_msg
+                        except Exception as e:
+                            LOGGER.warning(f"Failed to get message with user client: {e}")
                 else:
                     self._is_private = self._sent_msg.chat.type.name == "PRIVATE"
                 if self._listener.leech_dest:
@@ -213,16 +219,23 @@ class TelegramUploader:
                 return False
 
         elif self._user_session:
-            self._sent_msg = await TgClient.user.get_messages(
-                chat_id=self._listener.message.chat.id, message_ids=self._listener.mid
-            )
-            if self._sent_msg is None:
-                self._sent_msg = await TgClient.user.send_message(
-                    chat_id=self._listener.message.chat.id,
-                    text="Deleted Cmd Message! Don't delete the cmd message again!",
-                    disable_web_page_preview=True,
-                    disable_notification=True,
-                )
+            self._sent_msg = self._listener.message
+            if TgClient.user:
+                try:
+                    user_msg = await TgClient.user.get_messages(
+                        chat_id=self._listener.message.chat.id, message_ids=self._listener.mid
+                    )
+                    if user_msg:
+                        self._sent_msg = user_msg
+                    else:
+                        self._sent_msg = await TgClient.user.send_message(
+                            chat_id=self._listener.message.chat.id,
+                            text="Deleted Cmd Message! Don't delete the cmd message again!",
+                            disable_web_page_preview=True,
+                            disable_notification=True,
+                        )
+                except Exception as e:
+                    LOGGER.warning(f"Failed to get/send message with user client: {e}")
         else:
             self._sent_msg = self._listener.message
         return True
@@ -454,15 +467,25 @@ class TelegramUploader:
                         self._user_session = f_size > 2097152000
                         if not self._is_dump_chat and self._sent_msg:
                             if self._user_session and TgClient.user:
-                                self._sent_msg = await TgClient.user.get_messages(
-                                    chat_id=self._sent_msg.chat.id,
-                                    message_ids=self._sent_msg.id,
-                                )
+                                try:
+                                    user_msg = await TgClient.user.get_messages(
+                                        chat_id=self._sent_msg.chat.id,
+                                        message_ids=self._sent_msg.id,
+                                    )
+                                    if user_msg:
+                                        self._sent_msg = user_msg
+                                except Exception as e:
+                                    LOGGER.warning(f"Failed to get message with user client: {e}")
                             else:
-                                self._sent_msg = await self._listener.client.get_messages(
-                                    chat_id=self._sent_msg.chat.id,
-                                    message_ids=self._sent_msg.id,
-                                )
+                                try:
+                                    bot_msg = await self._listener.client.get_messages(
+                                        chat_id=self._sent_msg.chat.id,
+                                        message_ids=self._sent_msg.id,
+                                    )
+                                    if bot_msg:
+                                        self._sent_msg = bot_msg
+                                except Exception as e:
+                                    LOGGER.warning(f"Failed to get message with bot client: {e}")
                     self._last_msg_in_group = False
                     self._last_uploaded = 0
                     await self._upload_file(cap_mono, file_, f_path)
